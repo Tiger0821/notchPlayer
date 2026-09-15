@@ -1,10 +1,9 @@
 import AppKit
 import Combine
+import QuartzCore
 import SwiftUI
 
 enum NotchLayout {
-    static let controlsHeight: CGFloat = 124
-    static let expandedMinWidth: CGFloat = 440
     /// Gap between lyric text and the notch.
     static let wingInnerPadding: CGFloat = 12
     static let wingOuterPadding: CGFloat = 14
@@ -41,19 +40,8 @@ struct NotchGeometry: Equatable {
         min(CGFloat(wing), (screenFrame.width - notchWidth) / 2)
     }
 
-    func width(wing: CGFloat, expanded: Bool) -> CGFloat {
-        let collapsed = notchWidth + wing * 2
-        return expanded ? min(max(collapsed, NotchLayout.expandedMinWidth), screenFrame.width) : collapsed
-    }
-}
-
-@MainActor
-final class NotchUIState: ObservableObject {
-    @Published var geometry: NotchGeometry
-    @Published var expanded = false
-
-    init(geometry: NotchGeometry) {
-        self.geometry = geometry
+    func width(wing: CGFloat) -> CGFloat {
+        notchWidth + wing * 2
     }
 }
 
@@ -65,7 +53,10 @@ final class NotchPanel: NSPanel {
         hasShadow = false
         // Above the menu bar and its status items; below pop-up menus.
         level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
-        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        // Transient: hidden while Mission Control / App Exposé is showing (a stationary window would stay on top).
+        collectionBehavior = [.canJoinAllSpaces, .transient, .fullScreenAuxiliary, .ignoresCycle]
+        // Purely visual: clicks always reach the menu bar underneath.
+        ignoresMouseEvents = true
         isMovable = false
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
@@ -76,38 +67,36 @@ final class NotchPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// Lets the first click on an inactive app's panel hit SwiftUI buttons directly.
-final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-}
-
 @MainActor
 final class NotchWindowController {
     private let panel = NotchPanel()
-    private let ui: NotchUIState
-    private let model: NowPlayingModel
+    private let geometry: NotchGeometry
     private let settings: AppSettings
     private var cancellables = Set<AnyCancellable>()
+    private var eventMonitors: [Any] = []
     private var hideWorkItem: DispatchWorkItem?
-    private var collapseWorkItem: DispatchWorkItem?
-    private var clickMonitor: Any?
+    private var pointerPollTimer: Timer?
+
+    /// Music is playing and lyrics are enabled.
+    private var wantsVisible = false
+    /// The pointer went onto the lyrics, so the real menu bar shows until the pointer leaves the menu bar.
+    private var hoverHidden = false
     private var isShown = false
+    /// The revealed menu bar was clicked, so a menu is probably open below it.
+    private var menuProbablyOpen = false
+    private var leftMenuBarAt: CFTimeInterval?
+    /// Longest wait for the click that closes a menu before covering the menu bar again.
+    private static let openMenuGrace: CFTimeInterval = 3
 
-    init(screen: NSScreen, model: NowPlayingModel, settings: AppSettings, openSettings: @escaping () -> Void) {
-        self.model = model
+    init(screen: NSScreen, model: NowPlayingModel, sync: AutoSyncController, settings: AppSettings) {
         self.settings = settings
-        ui = NotchUIState(geometry: NotchGeometry(screen: screen))
+        geometry = NotchGeometry(screen: screen)
 
-        let root = NotchRootView(ui: ui, model: model, music: model.music, settings: settings, openSettings: openSettings)
-        let hosting = FirstMouseHostingView(rootView: root)
+        let root = NotchRootView(geometry: geometry, model: model, music: model.music, sync: sync, settings: settings)
+        let hosting = NSHostingView(rootView: root)
         hosting.sizingOptions = []
         panel.contentView = hosting
-        panel.setFrame(frame(expanded: false), display: false)
-
-        ui.$expanded
-            .removeDuplicates()
-            .sink { [weak self] expanded in self?.expandedChanged(expanded) }
-            .store(in: &cancellables)
+        updateFrame()
 
         settings.$wingWidth
             .removeDuplicates()
@@ -115,26 +104,45 @@ final class NotchWindowController {
             .sink { [weak self] _ in self?.updateFrame() }
             .store(in: &cancellables)
 
-        // Visible only while music is playing (or while the controls are open).
-        Publishers.CombineLatest4(settings.$enabled, model.music.$track.map { $0 != nil }, model.music.$isPlaying, ui.$expanded)
-            .map { enabled, hasTrack, playing, expanded in enabled && hasTrack && (playing || expanded) }
+        Publishers.CombineLatest3(settings.$enabled, model.music.$track.map { $0 != nil }, model.music.$isPlaying)
+            .map { enabled, hasTrack, playing in enabled && hasTrack && playing }
             .removeDuplicates()
-            .sink { [weak self] visible in self?.setVisible(visible) }
+            .receive(on: RunLoop.main)
+            .sink { [weak self] visible in
+                self?.wantsVisible = visible
+                self?.updatePointerPolling()
+                self?.refresh()
+            }
             .store(in: &cancellables)
 
-        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.ui.expanded else { return }
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) { self.ui.expanded = false }
+        NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification, object: panel)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                Log.notch.info("occlusion: visible=\(self.panel.occlusionState.contains(.visible))")
             }
+            .store(in: &cancellables)
+
+        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseDown, .leftMouseUp, .rightMouseDown]
+        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] event in
+            let type = event.type
+            Task { @MainActor in self?.pointerChanged(type) }
+        }) {
+            eventMonitors.append(monitor)
+        }
+        if let monitor = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] event in
+            self?.pointerChanged(event.type)
+            return event
+        }) {
+            eventMonitors.append(monitor)
         }
     }
 
     func close() {
-        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
-        clickMonitor = nil
-        cancellables.removeAll()
+        eventMonitors.forEach(NSEvent.removeMonitor)
+        eventMonitors.removeAll()
+        pointerPollTimer?.invalidate()
         hideWorkItem?.cancel()
+        cancellables.removeAll()
         panel.orderOut(nil)
         panel.close()
     }
@@ -144,66 +152,125 @@ final class NotchWindowController {
         guard let view = panel.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: url)
-        Log.notch.info("snapshot \(url.path, privacy: .public) shown=\(self.isShown) alpha=\(self.panel.alphaValue) onScreen=\(self.panel.isVisible)")
-    }
-
-    private func frame(expanded: Bool) -> NSRect {
-        let geometry = ui.geometry
-        let width = geometry.width(wing: geometry.clampedWing(settings.wingWidth), expanded: expanded)
-        let height = geometry.barHeight + (expanded ? NotchLayout.controlsHeight : 0)
-        return NSRect(x: geometry.notchMidX - width / 2, y: geometry.screenFrame.maxY - height, width: width, height: height)
+        Log.notch.info("snapshot \(url.path, privacy: .public) shown=\(self.isShown) hoverHidden=\(self.hoverHidden) alpha=\(self.panel.alphaValue)")
     }
 
     private func updateFrame() {
-        let target = frame(expanded: ui.expanded)
-        panel.setFrame(target, display: true)
-        Log.notch.info("frame target=\(NSStringFromRect(target), privacy: .public) actual=\(NSStringFromRect(self.panel.frame), privacy: .public) notch=\(self.ui.geometry.notchWidth)")
+        let width = geometry.width(wing: geometry.clampedWing(settings.wingWidth))
+        let frame = NSRect(
+            x: geometry.notchMidX - width / 2, y: geometry.screenFrame.maxY - geometry.barHeight,
+            width: width, height: geometry.barHeight)
+        panel.setFrame(frame, display: true)
+        Log.notch.info("frame \(NSStringFromRect(frame), privacy: .public) notch=\(self.geometry.notchWidth)")
     }
 
-    private func expandedChanged(_ expanded: Bool) {
-        collapseWorkItem?.cancel()
-        if expanded {
-            panel.setFrame(frame(expanded: true), display: true)
-        } else {
-            // Let the collapse animation finish before shrinking the window.
-            let work = DispatchWorkItem { [weak self] in
-                guard let self, !self.ui.expanded else { return }
-                self.panel.setFrame(self.frame(expanded: false), display: true)
+    // MARK: - Hover to reveal the menu bar
+
+    /// Entering this reveals the menu bar: the overlay itself, padded a little and past the top edge.
+    private var overlayZone: NSRect {
+        let frame = panel.frame
+        return NSRect(x: frame.minX - 4, y: frame.minY, width: frame.width + 8, height: frame.height + 4)
+    }
+
+    /// This screen's whole menu bar; the lyrics return the moment the pointer leaves it.
+    private var menuBarZone: NSRect {
+        let screen = geometry.screenFrame
+        return NSRect(x: screen.minX, y: screen.maxY - geometry.barHeight, width: screen.width, height: geometry.barHeight + 4)
+    }
+
+    private func pointerChanged(_ type: NSEvent.EventType) {
+        guard wantsVisible || hoverHidden else { return }
+        let location = NSEvent.mouseLocation
+        let now = CACurrentMediaTime()
+        let isClick = type == .leftMouseDown || type == .rightMouseDown
+
+        if !hoverHidden {
+            guard overlayZone.contains(location) else { return }
+            hoverHidden = true
+            menuProbablyOpen = isClick
+            leftMenuBarAt = nil
+            refresh()
+            return
+        }
+
+        if menuBarZone.contains(location) {
+            leftMenuBarAt = nil
+            if isClick { menuProbablyOpen = true }
+            return
+        }
+
+        if menuProbablyOpen {
+            if isClick || type == .leftMouseUp {
+                // This click picked a menu item or dismissed the menu.
+                menuProbablyOpen = false
+            } else {
+                let left = leftMenuBarAt ?? now
+                leftMenuBarAt = left
+                guard now - left >= Self.openMenuGrace else { return }
+                menuProbablyOpen = false
             }
-            collapseWorkItem = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+        }
+
+        hoverHidden = false
+        leftMenuBarAt = nil
+        refresh()
+    }
+
+    /// Mouse-moved events can be missed (e.g. while another app tracks a menu), and the open-menu grace needs a
+    /// clock, so also check the pointer frequently while it matters.
+    private func updatePointerPolling() {
+        let needed = wantsVisible || hoverHidden
+        if needed, pointerPollTimer == nil {
+            pointerPollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.pointerChanged(.mouseMoved) }
+            }
+        } else if !needed {
+            pointerPollTimer?.invalidate()
+            pointerPollTimer = nil
         }
     }
 
-    private func setVisible(_ visible: Bool) {
-        Log.notch.info("visible=\(visible)")
+    // MARK: - Visibility
+
+    private func refresh() {
         hideWorkItem?.cancel()
+        updatePointerPolling()
+        let visible = wantsVisible && !hoverHidden
+        Log.notch.info("visible=\(visible) (playing=\(self.wantsVisible) hoverHidden=\(self.hoverHidden))")
+
         if visible {
-            guard !isShown else { return }
-            isShown = true
-            updateFrame()
-            panel.orderFrontRegardless()
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.25
-                panel.animator().alphaValue = 1
+            if !isShown {
+                isShown = true
+                panel.orderFrontRegardless()
             }
+            animateAlpha(to: 1, duration: 0.1)
+            return
+        }
+        guard isShown else { return }
+
+        let hide = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.animateAlpha(to: 0, duration: self.hoverHidden ? 0.1 : 0.3) { [weak self] in
+                guard let self, !(self.wantsVisible && !self.hoverHidden) else { return }
+                self.isShown = false
+                self.panel.orderOut(nil)
+            }
+        }
+        hideWorkItem = hide
+        if hoverHidden {
+            hide.perform()
         } else {
             // Short grace period so track changes and brief pauses don't flicker the menu bar.
-            let work = DispatchWorkItem { [weak self] in
-                guard let self, self.isShown else { return }
-                self.isShown = false
-                NSAnimationContext.runAnimationGroup({ context in
-                    context.duration = 0.3
-                    self.panel.animator().alphaValue = 0
-                }, completionHandler: { [weak self] in
-                    Task { @MainActor in
-                        guard let self, !self.isShown else { return }
-                        self.panel.orderOut(nil)
-                    }
-                })
-            }
-            hideWorkItem = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: hide)
         }
+    }
+
+    private func animateAlpha(to alpha: CGFloat, duration: TimeInterval, completion: (@MainActor () -> Void)? = nil) {
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = duration
+            panel.animator().alphaValue = alpha
+        }, completionHandler: {
+            Task { @MainActor in completion?() }
+        })
     }
 }

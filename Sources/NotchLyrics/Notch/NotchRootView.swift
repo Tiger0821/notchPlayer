@@ -2,41 +2,24 @@ import LyricsCore
 import SwiftUI
 
 struct NotchRootView: View {
-    @ObservedObject var ui: NotchUIState
+    let geometry: NotchGeometry
     @ObservedObject var model: NowPlayingModel
     @ObservedObject var music: MusicController
+    @ObservedObject var sync: AutoSyncController
     @ObservedObject var settings: AppSettings
-    let openSettings: () -> Void
 
     var body: some View {
-        let geometry = ui.geometry
         let wing = geometry.clampedWing(settings.wingWidth)
-        let collapsedWidth = geometry.width(wing: wing, expanded: false)
-        let shape = UnevenRoundedRectangle(
-            bottomLeadingRadius: ui.expanded ? 20 : 10,
-            bottomTrailingRadius: ui.expanded ? 20 : 10,
-            style: .continuous)
 
-        VStack(spacing: 0) {
-            LyricsBar(model: model, music: music, settings: settings, wing: wing, notchWidth: geometry.notchWidth)
-                .frame(width: collapsedWidth, height: geometry.barHeight)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) { ui.expanded.toggle() }
-                }
-
-            if ui.expanded {
-                ControlsPanel(model: model, music: music, settings: settings, openSettings: openSettings)
-                    .frame(height: NotchLayout.controlsHeight)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .frame(width: geometry.width(wing: wing, expanded: ui.expanded), alignment: .top)
-        .background(shape.fill(Color.black))
-        .clipShape(shape)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .ignoresSafeArea()
-        .environment(\.colorScheme, .dark)
+        LyricsBar(model: model, music: music, sync: sync, settings: settings, wing: wing, notchWidth: geometry.notchWidth)
+            .frame(width: geometry.width(wing: wing), height: geometry.barHeight)
+            .background(
+                UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10, style: .continuous)
+                    .fill(Color.black)
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .ignoresSafeArea()
+            .environment(\.colorScheme, .dark)
     }
 }
 
@@ -81,6 +64,7 @@ struct BarContent {
 struct LyricsBar: View {
     @ObservedObject var model: NowPlayingModel
     @ObservedObject var music: MusicController
+    @ObservedObject var sync: AutoSyncController
     @ObservedObject var settings: AppSettings
     let wing: CGFloat
     let notchWidth: CGFloat
@@ -91,7 +75,7 @@ struct LyricsBar: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !music.isPlaying || !settings.enabled)) { _ in
-            let time = music.position() + settings.offsetMs / 1000
+            let time = music.position() + sync.correction
             let content = BarContent.make(state: model.lyricsState, track: music.track, time: time)
 
             HStack(spacing: 0) {

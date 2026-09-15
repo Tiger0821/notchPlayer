@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "NotchLyrics",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("26.0")],
     targets: [
         // Pure lyrics logic (parsing, timing, fetching). No AppKit, so it's unit-testable.
         .target(name: "LyricsCore", path: "Sources/LyricsCore"),

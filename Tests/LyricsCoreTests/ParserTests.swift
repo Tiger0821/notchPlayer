@@ -72,6 +72,54 @@ import Testing
     #expect(lyrics.lineIndex(at: 100) == 2)
 }
 
+// MARK: - Alignment (made-up lyrics)
+
+private let alignmentLyrics = """
+[00:10.00]lanterns drifting over silver water
+[00:14.00]we count the hours until morning
+[00:18.00]窗外的風輕輕吹過街燈
+[00:22.00]hold the light and sing it louder
+[00:26.00]hold the light and sing it louder
+[00:30.00]我們把故事寫在夜空
+[00:34.00]hold the light and sing it louder
+[00:38.00]paper birds are flying home tonight
+"""
+
+/// Recognized units as if the audio were `shift` seconds behind the lyric timestamps, optionally with mistakes.
+private func recognized(_ lyrics: Lyrics, lines: [Int], shift: Double, garble: Bool = false) -> [TimedUnit] {
+    lines.flatMap { index -> [TimedUnit] in
+        let line = lyrics.lines[index]
+        var units = line.words.flatMap { LyricsAligner.units(from: $0.text, start: $0.start - shift, end: $0.end - shift) }
+        if garble, units.count > 3 { units[2].key = "zzz" }
+        return units
+    }
+}
+
+@Test func alignerFindsConstantOffset() throws {
+    let lyrics = try #require(LRCParser.parse(alignmentLyrics, source: "test"))
+    var aligner = LyricsAligner(lyrics: lyrics)
+    aligner.add(recognized(lyrics, lines: [0, 1, 2, 5, 7], shift: 1.3, garble: true))
+    let estimate = try #require(aligner.estimate())
+    #expect(abs(estimate.offset - 1.3) < 0.15)
+    #expect(estimate.support >= 4)
+}
+
+@Test func alignerHandlesRepeatedChorusAndNegativeOffset() throws {
+    let lyrics = try #require(LRCParser.parse(alignmentLyrics, source: "test"))
+    var aligner = LyricsAligner(lyrics: lyrics)
+    // Only the repeated chorus plus one unique line: repeats vote everywhere, the unique line breaks the tie.
+    aligner.add(recognized(lyrics, lines: [3, 4, 6, 2], shift: -2.1))
+    let estimate = try #require(aligner.estimate())
+    #expect(abs(estimate.offset + 2.1) < 0.15)
+}
+
+@Test func alignerStaysQuietWithoutEvidence() throws {
+    let lyrics = try #require(LRCParser.parse(alignmentLyrics, source: "test"))
+    var aligner = LyricsAligner(lyrics: lyrics)
+    aligner.add(LyricsAligner.units(from: "completely different words here", start: 5, end: 7))
+    #expect(aligner.estimate() == nil)
+}
+
 @Test func normalizesForMatching() {
     #expect(TextNormalize.key("Some Song (Remastered 2011)") == TextNormalize.key("some song"))
     #expect(TextNormalize.toSimplified("陳奕迅") == "陈奕迅")

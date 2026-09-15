@@ -160,6 +160,9 @@ final class MusicController: ObservableObject {
     @Published private(set) var artwork: NSImage?
     @Published private(set) var automationDenied = false
 
+    /// Thread-safe mirror of the playback anchor, for the audio sync session.
+    let clock = PlaybackClock()
+
     private let bridge = MusicScriptBridge()
     private var anchorPosition: TimeInterval = 0
     private var anchorTime: CFTimeInterval = CACurrentMediaTime()
@@ -206,6 +209,9 @@ final class MusicController: ObservableObject {
     }
 
     private func apply(_ snapshot: PlayerSnapshot) {
+        defer {
+            clock.update(PlaybackClock.Anchor(trackID: track?.id, position: anchorPosition, time: anchorTime, isPlaying: isPlaying))
+        }
         if (snapshot.state == .denied) != automationDenied {
             Log.music.info("automation denied: \(snapshot.state == .denied)")
         }

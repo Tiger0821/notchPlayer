@@ -4,16 +4,17 @@ Synced lyrics beside the MacBook notch for Apple Music — karaoke-style, with e
 
 - **Left of the notch:** the current line, filling word by word (character by character for Chinese/Japanese/Korean).
 - **Right of the notch:** the next line, dimmed.
-- **Click the bar:** a panel drops down with artwork, previous / play-pause / next, progress, and a quick lyric-timing nudge.
-- Shows only while Music is playing, so the normal menu bar comes back when you pause.
-- Displays without a notch get a drawn one.
+- **Automatic sync:** the app listens to Music on-device, matches the sung words to the lyrics, and corrects the timing by itself. It also compensates for Bluetooth/AirPods delay. There is no manual offset.
+- **Hover to reveal:** move the pointer onto the lyrics and they fade away, showing the real menu bar. They come back when the pointer leaves.
+- Shows only while Music is playing. Displays without a notch get a drawn one.
+- Playback controls live in the ❝ menu bar item.
 
 Native Swift/SwiftUI, ~1 MB, no dependencies.
 
 ## Requirements
 
-- macOS 14 or later (built and tested on macOS 27, 14" MacBook Pro)
-- Xcode or the Xcode Command Line Tools (Swift 5.10+)
+- macOS 26 or later (built and tested on macOS 27, 14" MacBook Pro)
+- Xcode (Swift 6 toolchain)
 - The Apple Music app
 
 ## Build & run
@@ -23,15 +24,29 @@ Native Swift/SwiftUI, ~1 MB, no dependencies.
 open build/NotchLyrics.app
 ```
 
-On first launch macOS asks to let NotchLyrics control **Music** — click **Allow**. If you missed it: menu bar ❝ icon → *Allow NotchLyrics to Control Music…* (or System Settings › Privacy & Security › Automation).
+macOS asks for two permissions:
 
-The app is ad-hoc signed for personal use, so macOS may ask for that permission again after a rebuild.
+| Prompt | Why | If you missed it |
+|---|---|---|
+| Control **Music** | Read the current song and position; play/pause/skip | ❝ menu → *Allow NotchLyrics to Control Music…* |
+| Record audio from other apps | Automatic sync (audio is analyzed on-device, never recorded or sent) | Settings › Sync → *Open Privacy Settings…* |
+
+The app is ad-hoc signed for personal use, so macOS may ask again after a rebuild.
 
 Run the tests:
 
 ```bash
 swift test
 ```
+
+## How automatic sync works
+
+1. **Output delay:** reads the current output device's latency from Core Audio (e.g. ~170 ms for AirPods Pro) and subtracts it.
+2. **Listening:** captures Music's audio with a Core Audio process tap. Apple's on-device speech recognizer (`SpeechAnalyzer`) transcribes the singing, using the song's lyrics as hints.
+3. **Matching:** short recognized phrases (3 CJK characters or 2 words) vote for an offset between the lyric timestamps and playback. A repeated chorus votes for every place it occurs, with less weight, so the true offset is the densest cluster (`LyricsAligner`).
+4. **Remembering:** once the estimate is stable, the offset is saved for that song and listening stops to save power. Songs not measured yet use the typical offset learned from recent songs.
+
+The status for the current song is shown in the ❝ menu and in Settings › Sync. There, *Re-sync* forgets a song's saved timing and listens again.
 
 ## Where lyrics come from
 
@@ -71,36 +86,37 @@ Enhanced LRC word tags are supported:
 
 ## Settings
 
-Open from the ❝ menu bar icon, or the gear in the drop-down panel:
+Open from the ❝ menu bar item. Settings has four tabs:
 
-- Show/hide lyrics, and draw a notch on external displays
-- Font size, and width of the strips beside the notch
-- **Lyrics timing** offset (positive = lyrics earlier)
-- Use NetEase word-level lyrics
-- Convert Simplified Chinese to Traditional (skipped for Japanese lyrics)
+- **General:** live preview, show/hide, drawn notch on other displays, text size, width beside the notch
+- **Lyrics:** NetEase word timing, Traditional Chinese conversion, local lyrics folder, clear cache
+- **Sync:** automatic sync on/off, current song status, output device delay, re-sync
+- **About:** version and project link
 
 ## Notes & limitations
 
-- While music plays, the strips beside the notch cover the menu bar items underneath (including the ❝ icon). Use the gear in the drop-down panel, pause, or narrow the strips in Settings.
 - Only Apple Music is supported. Spotify and browsers are not.
+- Speech recognition on singing is imperfect. Heavily produced vocals, rap or languages the recognizer doesn't support may not match. Those songs fall back to the learned typical offset.
 - The Simplified → Traditional conversion is character-based and can occasionally pick the wrong variant.
 
 ## Debugging
 
 ```bash
-# Live logs: track changes, lyrics source, window frame, visibility
+# Live logs: track changes, lyrics source, sync estimates, window frame, visibility
 log stream --predicate 'subsystem == "com.tigercho.NotchLyrics"' --level info
 ```
 
-Posting the distributed notification `com.tigercho.NotchLyrics.snapshot` makes the app save each overlay to `~/Library/Caches/NotchLyrics/snapshot-N.png`. This needs no Screen Recording permission.
+Posting the distributed notification `com.tigercho.NotchLyrics.snapshot` makes the app save each overlay to `~/Library/Caches/NotchLyrics/snapshot-N.png`. With the object `settings-N`, it opens Settings on tab N and saves `settings-N.png`. Neither needs Screen Recording permission.
 
 ## Project layout
 
 ```
-Sources/LyricsCore/     Parsing (LRC, enhanced LRC, NetEase YRC), word-timing estimation,
-                        text matching, LRCLIB/NetEase/local providers, ranking + cache
-Sources/NotchLyrics/    App: Music.app bridge (AppleScript), notch overlay window,
-                        karaoke views, controls panel, menu bar item, settings
-Tests/LyricsCoreTests/  Parser and matching tests (Swift Testing)
-scripts/build-app.sh    Builds and ad-hoc signs build/NotchLyrics.app
+Sources/LyricsCore/       Parsing (LRC, enhanced LRC, NetEase YRC), word-timing estimation, text matching,
+                          LRCLIB/NetEase/local providers, ranking + cache, audio-to-lyrics aligner
+Sources/NotchLyrics/App   App lifecycle, settings window, ❝ menu, logging
+Sources/NotchLyrics/Music Music.app bridge (AppleScript) and playback clock
+Sources/NotchLyrics/Notch Notch overlay window (hover to reveal) and karaoke views
+Sources/NotchLyrics/Sync  Output latency, Music audio tap, speech session, auto-sync controller
+Tests/LyricsCoreTests/    Parser, matching and aligner tests (Swift Testing)
+scripts/build-app.sh      Builds and ad-hoc signs build/NotchLyrics.app
 ```

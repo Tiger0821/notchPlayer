@@ -6,31 +6,34 @@ final class AppSettings: ObservableObject {
 
     @Published var enabled: Bool { didSet { defaults.set(enabled, forKey: "enabled") } }
     @Published var fontSize: Double { didSet { defaults.set(fontSize, forKey: "fontSize") } }
-    /// Positive values show lyrics earlier.
-    @Published var offsetMs: Double { didSet { defaults.set(offsetMs, forKey: "offsetMs") } }
     /// Width of each lyric strip beside the notch, in points.
     @Published var wingWidth: Double { didSet { defaults.set(wingWidth, forKey: "wingWidth") } }
     @Published var showOnExternalDisplays: Bool { didSet { defaults.set(showOnExternalDisplays, forKey: "showOnExternalDisplays") } }
     @Published var convertToTraditional: Bool { didSet { defaults.set(convertToTraditional, forKey: "convertToTraditional") } }
     @Published var useNetEase: Bool { didSet { defaults.set(useNetEase, forKey: "useNetEase") } }
+    /// Listen to Music's audio to line lyrics up automatically.
+    @Published var autoSync: Bool { didSet { defaults.set(autoSync, forKey: "autoSync") } }
 
     init() {
         defaults.register(defaults: [
             "enabled": true,
             "fontSize": 13.0,
-            "offsetMs": 0.0,
             "wingWidth": 250.0,
             "showOnExternalDisplays": true,
             "convertToTraditional": true,
             "useNetEase": true,
+            "autoSync": true,
         ])
+        // Timing is automatic now; drop the old manual offset.
+        defaults.removeObject(forKey: "offsetMs")
+
         enabled = defaults.bool(forKey: "enabled")
         fontSize = defaults.double(forKey: "fontSize")
-        offsetMs = defaults.double(forKey: "offsetMs")
         wingWidth = defaults.double(forKey: "wingWidth")
         showOnExternalDisplays = defaults.bool(forKey: "showOnExternalDisplays")
         convertToTraditional = defaults.bool(forKey: "convertToTraditional")
         useNetEase = defaults.bool(forKey: "useNetEase")
+        autoSync = defaults.bool(forKey: "autoSync")
     }
 
     var lyricsFolder: URL {

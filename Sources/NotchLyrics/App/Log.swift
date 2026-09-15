@@ -5,4 +5,5 @@ enum Log {
     static let music = Logger(subsystem: "com.tigercho.NotchLyrics", category: "music")
     static let lyrics = Logger(subsystem: "com.tigercho.NotchLyrics", category: "lyrics")
     static let notch = Logger(subsystem: "com.tigercho.NotchLyrics", category: "notch")
+    static let sync = Logger(subsystem: "com.tigercho.NotchLyrics", category: "sync")
 }
