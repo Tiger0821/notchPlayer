@@ -127,3 +127,9 @@ private func recognized(_ lyrics: Lyrics, lines: [Int], shift: Double, garble: B
     #expect(TextNormalize.primaryArtist("Artist A & Artist B") == "Artist A")
     #expect(TextNormalize.cleanTitle("Tune - Live Version") == "Tune")
 }
+
+@Test func numbersSungLinesForAlternatingSides() throws {
+    // Blank lines keep the previous number, so the side only flips on lines that are actually sung.
+    let lyrics = try #require(LRCParser.parse("[00:01.00]first\n[00:03.00]\n[00:05.00]second\n[00:07.00]third", source: "test"))
+    #expect(lyrics.lineOrdinals == [0, 0, 1, 2])
+}

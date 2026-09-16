@@ -8,6 +8,8 @@ struct KaraokeLineView: View {
     let time: TimeInterval
     let fontSize: CGFloat
     let width: CGFloat
+    /// Which edge the text hugs when it fits: the notch side.
+    let alignment: Alignment
 
     var body: some View {
         let widths = TextMeasurer.widths(of: line.words, fontSize: fontSize)
@@ -17,14 +19,27 @@ struct KaraokeLineView: View {
         let scroll = overflow > 0 ? min(max(head - width * 0.65, 0), overflow) : 0
         let font = Font.system(size: fontSize, weight: .semibold)
 
+        // The glow trails the word being sung and fades out over roughly the last 8 characters,
+        // instead of switching off the moment a word ends.
+        let characters = max(line.words.reduce(0) { $0 + $1.text.count }, 1)
+        let glowSpan = max(total / CGFloat(characters) * 8, 1)
+        var wordEnd: CGFloat = 0
+        let ends = widths.map { width -> CGFloat in
+            wordEnd += width
+            return wordEnd
+        }
+
         HStack(spacing: 0) {
             ForEach(line.words.indices, id: \.self) { index in
-                KaraokeWordView(text: line.words[index].text, progress: line.words[index].progress(at: time), font: font)
+                KaraokeWordView(text: line.words[index].text,
+                                progress: line.words[index].progress(at: time),
+                                glow: min(max(1 - (head - ends[index]) / glowSpan, 0), 1),
+                                font: font)
             }
         }
         .fixedSize()
         .offset(x: -scroll)
-        .frame(width: width, alignment: overflow > 0 ? .leading : .trailing)
+        .frame(width: width, alignment: overflow > 0 ? .leading : alignment)
         .clipped()
         .mask(EdgeFade(leading: scroll > 0.5, trailing: scroll < overflow - 0.5))
     }
@@ -33,12 +48,14 @@ struct KaraokeLineView: View {
 struct KaraokeWordView: View {
     let text: String
     let progress: Double
+    /// 1 on the word being sung, fading to 0 across the characters behind it.
+    var glow: Double = 0
     let font: Font
 
     var body: some View {
         Text(text)
             .font(font)
-            .foregroundStyle(Color.white.opacity(0.32))
+            .foregroundStyle(Color.white.opacity(0.4))
             .overlay(alignment: .leading) {
                 Text(text)
                     .font(font)
@@ -48,8 +65,8 @@ struct KaraokeWordView: View {
                             Rectangle().frame(width: proxy.size.width * progress)
                         }
                     }
-                    // The word being sung right now glows.
-                    .shadow(color: Color.white.opacity(progress > 0 && progress < 1 ? 0.8 : 0), radius: 4)
+                    // The sung word glows, trailing off over the characters behind it.
+                    .shadow(color: Color.white.opacity(0.85 * glow), radius: 4)
             }
     }
 }

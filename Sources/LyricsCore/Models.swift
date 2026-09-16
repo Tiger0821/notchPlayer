@@ -47,11 +47,19 @@ public struct Lyrics: Equatable, Sendable {
     public var lines: [LyricLine]
     public var timing: LyricsTiming
     public var source: String
+    /// Position of each line among the sung (non-blank) lines. Blank lines keep the previous number, so
+    /// alternating sides per sung line stays in step.
+    public private(set) var lineOrdinals: [Int]
 
     public init(lines: [LyricLine], timing: LyricsTiming, source: String) {
         self.lines = lines
         self.timing = timing
         self.source = source
+        var ordinal = -1
+        lineOrdinals = lines.map { line in
+            if !line.isBlank { ordinal += 1 }
+            return max(ordinal, 0)
+        }
     }
 
     /// Index of the last line that has started at `time`, or nil before the first line.

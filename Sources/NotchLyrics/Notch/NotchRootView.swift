@@ -23,40 +23,67 @@ struct NotchRootView: View {
     }
 }
 
-/// What the two strips beside the notch show at a given moment.
+/// What each strip beside the notch shows. Every line keeps the side its number gives it, so a line already
+/// waiting dimmed on one side simply lights up when it starts — only the other side gets new text.
 struct BarContent {
-    enum Left {
-        case karaoke(LyricLine)
-        case plain(String)
+    enum Slot: Equatable {
+        case line(LyricLine, index: Int)
+        case text(String, dimmed: Bool)
         case gap
+        case empty
+
+        /// Identity for the strip: while this stays the same, the strip changes in place instead of animating.
+        var identity: String {
+            switch self {
+            case .line(_, let index): "line-\(index)"
+            case .text(let text, _): "text-\(text)"
+            case .gap: "gap"
+            case .empty: "empty"
+            }
+        }
     }
 
-    var left: Left
-    var right: String
-    /// Changes whenever the displayed line changes; drives the line transition.
-    var lineID: Int
+    var left: Slot
+    var right: Slot
+
+    private init(current: Slot, onLeft: Bool, other: Slot) {
+        left = onLeft ? current : other
+        right = onLeft ? other : current
+    }
 
     static func make(state: NowPlayingModel.LyricsState, track: TrackInfo?, time: TimeInterval) -> BarContent {
-        guard let track else { return BarContent(left: .plain(""), right: "", lineID: -1) }
+        guard let track else { return BarContent(current: .empty, onLeft: true, other: .empty) }
 
         switch state {
         case .loaded(let lyrics):
+            let nextIndex: (Int) -> Int? = { from in
+                lyrics.lines[from...].indices.first { !lyrics.lines[$0].isBlank }
+            }
             guard let index = lyrics.lineIndex(at: time) else {
-                let first = lyrics.lines.first { !$0.isBlank }
-                return BarContent(left: .plain(track.title), right: first?.text ?? track.artist, lineID: -2)
+                // Before the song's first line: park it on its own side so it doesn't jump when it starts.
+                guard let first = nextIndex(0) else {
+                    return BarContent(current: .text(track.title, dimmed: false), onLeft: true, other: .empty)
+                }
+                return BarContent(current: .line(lyrics.lines[first], index: first),
+                                  onLeft: lyrics.lineOrdinals[first].isMultiple(of: 2),
+                                  other: .text(track.title, dimmed: false))
             }
+
             let line = lyrics.lines[index]
-            let next = lyrics.lines[(index + 1)...].first { !$0.isBlank }
+            let upcoming = nextIndex(index + 1)
+            let next: Slot = upcoming.map { .line(lyrics.lines[$0], index: $0) } ?? .empty
             // With real word timing we know when singing stops, so show a rest marker during long instrumentals.
-            let longBreak = lyrics.timing == .word && time > line.end + 0.6 && (next?.start ?? .infinity) - time > 3
-            if line.isBlank || longBreak {
-                return BarContent(left: .gap, right: next?.text ?? "", lineID: index * 2 + 1)
-            }
-            return BarContent(left: .karaoke(line), right: next?.text ?? "", lineID: index * 2)
+            let gapAhead = upcoming.map { lyrics.lines[$0].start } ?? .infinity
+            let longBreak = lyrics.timing == .word && time > line.end + 0.6 && gapAhead - time > 3
+            let current: Slot = line.isBlank || longBreak ? .gap : .line(line, index: index)
+            return BarContent(current: current, onLeft: lyrics.lineOrdinals[index].isMultiple(of: 2), other: next)
+
         case .loading:
-            return BarContent(left: .plain(track.title), right: "Searching lyrics…", lineID: -3)
+            return BarContent(current: .text(track.title, dimmed: false), onLeft: true,
+                              other: .text("Searching lyrics…", dimmed: true))
         case .notFound, .idle:
-            return BarContent(left: .plain(track.title), right: track.artist, lineID: -4)
+            return BarContent(current: .text(track.title, dimmed: false), onLeft: true,
+                              other: .text(track.artist, dimmed: true))
         }
     }
 }
@@ -79,53 +106,50 @@ struct LyricsBar: View {
             let content = BarContent.make(state: model.lyricsState, track: music.track, time: time)
 
             HStack(spacing: 0) {
-                leftWing(content, time: time)
+                strip(content.left, alignment: .trailing, time: time)
                     .padding(.leading, NotchLayout.wingOuterPadding)
                     .padding(.trailing, NotchLayout.wingInnerPadding)
                     .frame(width: wing)
                 Color.clear.frame(width: notchWidth)
-                rightWing(content)
+                strip(content.right, alignment: .leading, time: time)
                     .padding(.leading, NotchLayout.wingInnerPadding)
                     .padding(.trailing, NotchLayout.wingOuterPadding)
                     .frame(width: wing)
             }
             .clipped()
-            .animation(.easeInOut(duration: 0.28), value: content.lineID)
         }
     }
 
-    private func leftWing(_ content: BarContent, time: TimeInterval) -> some View {
+    /// One strip. Text hugs the notch: the left strip is right-aligned, the right strip left-aligned.
+    @ViewBuilder
+    private func strip(_ slot: BarContent.Slot, alignment: Alignment, time: TimeInterval) -> some View {
         let fontSize = CGFloat(settings.fontSize)
-        return Group {
-            switch content.left {
-            case .karaoke(let line):
-                KaraokeLineView(line: line, time: time, fontSize: fontSize, width: textWidth)
-            case .plain(let text):
+
+        Group {
+            switch slot {
+            case .line(let line, _):
+                // A line that hasn't started has no sung words yet, so it reads as the dimmed line coming up.
+                KaraokeLineView(line: line, time: time, fontSize: fontSize, width: textWidth, alignment: alignment)
+            case .text(let text, let dimmed):
                 Text(text)
-                    .font(.system(size: fontSize, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.75))
+                    .font(.system(size: fontSize, weight: dimmed ? .medium : .semibold))
+                    .foregroundStyle(Color.white.opacity(dimmed ? 0.45 : 0.75))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(width: textWidth, alignment: .trailing)
+                    .frame(width: textWidth, alignment: alignment)
             case .gap:
                 Image(systemName: "music.note")
                     .font(.system(size: fontSize, weight: .semibold))
                     .foregroundStyle(Color.white.opacity(0.5))
-                    .frame(width: textWidth, alignment: .trailing)
+                    .frame(width: textWidth, alignment: alignment)
+            case .empty:
+                Color.clear.frame(width: textWidth)
             }
         }
-        .id(content.lineID)
-        .transition(.push(from: .bottom))
-    }
-
-    private func rightWing(_ content: BarContent) -> some View {
-        Text(content.right)
-            .font(.system(size: CGFloat(settings.fontSize) * 0.92, weight: .medium))
-            .foregroundStyle(Color.white.opacity(0.45))
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .frame(width: textWidth, alignment: .leading)
-            .id(content.lineID)
-            .transition(.push(from: .bottom))
+        .id(slot.identity)
+        // New text just brightens into place; nothing slides.
+        .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.45)),
+                                removal: .opacity.animation(.easeIn(duration: 0.25))))
+        .animation(.easeInOut(duration: 0.3), value: slot.identity)
     }
 }

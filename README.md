@@ -2,8 +2,8 @@
 
 Synced lyrics beside the MacBook notch for Apple Music — karaoke-style, with each word lighting up as it's sung.
 
-- **Left of the notch:** the current line, filling word by word (character by character for Chinese/Japanese/Korean).
-- **Right of the notch:** the next line, dimmed.
+- **Lines alternate sides:** the line being sung sits on one side of the notch and the next line waits dimmed on the other, so each new line swaps sides — left, right, left.
+- **Word by word:** each word lights up as it's sung (character by character for Chinese/Japanese/Korean). Lines too long for the strip scroll to keep the sung word in view.
 - **Automatic sync:** the app listens to Music on-device, matches the sung words to the lyrics, and corrects the timing by itself. It also compensates for Bluetooth/AirPods delay. There is no manual offset.
 - **Hover to reveal:** move the pointer onto the lyrics and they fade away, showing the real menu bar. They come back when the pointer leaves.
 - Shows only while Music is playing. Displays without a notch get a drawn one.

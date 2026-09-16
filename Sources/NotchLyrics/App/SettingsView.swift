@@ -163,7 +163,6 @@ struct NotchPreview: View {
     var body: some View {
         let (screenWidth, notchWidth) = screen
         let wing = CGFloat(settings.wingWidth)
-        let textWidth = max(wing - NotchLayout.wingInnerPadding - NotchLayout.wingOuterPadding, 0)
         let fontSize = CGFloat(settings.fontSize)
 
         VStack(alignment: .leading, spacing: 10) {
@@ -180,30 +179,43 @@ struct NotchPreview: View {
                     let cycle = Self.lineDuration * Double(Self.sampleLines.count)
                     let time = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle)
                     let index = min(Int(time / Self.lineDuration), Self.sampleLines.count - 1)
+
+                    let line = Self.sampleLines[index]
                     let next = Self.sampleLines[(index + 1) % Self.sampleLines.count]
+                    let onLeft = index.isMultiple(of: 2)
+                    let textWidth = max(wing - NotchLayout.wingInnerPadding - NotchLayout.wingOuterPadding, 0)
 
                     HStack(spacing: 0) {
-                        KaraokeLineView(line: Self.sampleLines[index], time: time, fontSize: fontSize, width: textWidth)
-                            .padding(.leading, NotchLayout.wingOuterPadding)
-                            .padding(.trailing, NotchLayout.wingInnerPadding)
-                            .frame(width: wing)
-                        Circle()
-                            .fill(Color(white: 0.12))
-                            .frame(width: 7, height: 7)
-                            .frame(width: notchWidth)
-                        Text(next.text)
-                            .font(.system(size: fontSize * 0.92, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.45))
-                            .lineLimit(1)
-                            .frame(width: textWidth, alignment: .leading)
-                            .padding(.leading, NotchLayout.wingInnerPadding)
-                            .padding(.trailing, NotchLayout.wingOuterPadding)
-                            .frame(width: wing)
+                        Group {
+                            if onLeft {
+                                KaraokeLineView(line: line, time: time, fontSize: fontSize, width: textWidth, alignment: .trailing)
+                            } else {
+                                KaraokeLineView(line: next, time: time, fontSize: fontSize, width: textWidth, alignment: .trailing)
+                            }
+                        }
+                        .padding(.leading, NotchLayout.wingOuterPadding)
+                        .padding(.trailing, NotchLayout.wingInnerPadding)
+                        .frame(width: wing)
+
+                        // A hint of the camera, so the notch position is readable in the preview.
+                        Circle().fill(Color(white: 0.12)).frame(width: 7, height: 7).frame(width: notchWidth)
+
+                        Group {
+                            if onLeft {
+                                KaraokeLineView(line: next, time: time, fontSize: fontSize, width: textWidth, alignment: .leading)
+                            } else {
+                                KaraokeLineView(line: line, time: time, fontSize: fontSize, width: textWidth, alignment: .leading)
+                            }
+                        }
+                        .padding(.leading, NotchLayout.wingInnerPadding)
+                        .padding(.trailing, NotchLayout.wingOuterPadding)
+                        .frame(width: wing)
                     }
+                    .frame(height: 32)
                     .frame(height: 32)
                     .background(UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10, style: .continuous).fill(.black))
                     .fixedSize()
-                    .animation(.easeInOut(duration: 0.28), value: index)
+                    .animation(.easeOut(duration: 0.45), value: index)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
