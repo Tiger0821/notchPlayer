@@ -106,7 +106,7 @@ Open from the ❝ menu bar item. Settings has four tabs:
 log stream --predicate 'subsystem == "com.tigercho.NotchLyrics"' --level info
 ```
 
-Posting the distributed notification `com.tigercho.NotchLyrics.snapshot` makes the app save each overlay to `~/Library/Caches/NotchLyrics/snapshot-N.png`. With the object `settings-N`, it opens Settings on tab N and saves `settings-N.png`. Neither needs Screen Recording permission.
+Posting the distributed notification `com.tigercho.NotchLyrics.snapshot` makes the app save each overlay to `~/Library/Caches/NotchLyrics/snapshot-N.png`. With the object `settings-N` it opens Settings on tab N and saves `settings-N.png`; with `openmenu` it opens the ❝ menu briefly and saves `menu-window.png`. None of this needs Screen Recording permission.
 
 ## Project layout
 
