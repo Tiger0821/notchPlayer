@@ -88,11 +88,12 @@ final class NotchWindowController {
     /// Longest wait for the click that closes a menu before covering the menu bar again.
     private static let openMenuGrace: CFTimeInterval = 3
 
-    init(screen: NSScreen, model: NowPlayingModel, sync: AutoSyncController, settings: AppSettings) {
+    init(screen: NSScreen, model: NowPlayingModel, sync: AutoSyncController, settings: AppSettings, pixelArt: PixelArtLibrary) {
         self.settings = settings
         geometry = NotchGeometry(screen: screen)
 
-        let root = NotchRootView(geometry: geometry, model: model, music: model.music, sync: sync, settings: settings)
+        let root = NotchRootView(geometry: geometry, model: model, music: model.music, sync: sync, settings: settings,
+                                 pixelArt: pixelArt)
         let hosting = NSHostingView(rootView: root)
         hosting.sizingOptions = []
         panel.contentView = hosting

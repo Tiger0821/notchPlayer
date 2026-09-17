@@ -7,13 +7,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let music = MusicController()
     private lazy var model = NowPlayingModel(music: music, settings: settings)
     private lazy var sync = AutoSyncController(music: music, model: model, settings: settings)
-    private lazy var settingsWindow = SettingsWindowController(settings: settings, model: model, sync: sync)
+    private lazy var pixelArt = PixelArtLibrary(folder: settings.supportFolder)
+    private lazy var pixelEditors = PixelEditorWindows(library: pixelArt, settings: settings)
+    private lazy var settingsWindow = SettingsWindowController(settings: settings, model: model, sync: sync,
+                                                               pixelArt: pixelArt, pixelEditors: pixelEditors)
     private var statusItem: StatusItemController?
     private var notchWindows: [NotchWindowController] = []
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         try? FileManager.default.createDirectory(at: settings.lyricsFolder, withIntermediateDirectories: true)
+        installEditMenu()
 
         statusItem = StatusItemController(model: model, sync: sync, settings: settings) { [weak self] in
             self?.settingsWindow.show()
@@ -32,7 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
 
         // Debug: post "com.tigercho.NotchLyrics.snapshot" to dump each overlay to ~/Library/Caches/NotchLyrics/snapshot-N.png.
-        // With object "settings-N", opens Settings on tab N and saves settings-N.png instead.
+        // With object "settings-N", opens Settings on tab N and saves settings-N.png instead; with "editor-ID", opens the
+        // pixel editor for sprite ID and saves editor.png.
         DistributedNotificationCenter.default()
             .publisher(for: Notification.Name("com.tigercho.NotchLyrics.snapshot"))
             .receive(on: RunLoop.main)
@@ -43,6 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.statusItem?.openMenuBriefly()
                 } else if notification.object as? String == "menu" {
                     self.writeMenuSnapshot(to: self.settings.cacheFolder.appendingPathComponent("menu.png"))
+                } else if let object = notification.object as? String, object.hasPrefix("editor-") {
+                    self.pixelEditors.writeSnapshot(spriteID: String(object.dropFirst(7)),
+                                                    to: self.settings.cacheFolder.appendingPathComponent("editor.png"))
                 } else if let object = notification.object as? String, object.hasPrefix("settings-"), let tab = Int(object.dropFirst(9)) {
                     self.settingsWindow.writeSnapshot(tab: tab, to: self.settings.cacheFolder.appendingPathComponent("\(object).png"))
                 } else {
@@ -60,7 +68,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notchWindows.forEach { $0.close() }
         notchWindows = NSScreen.screens
             .filter { NotchGeometry(screen: $0).hasRealNotch || settings.showOnExternalDisplays }
-            .map { NotchWindowController(screen: $0, model: model, sync: sync, settings: settings) }
+            .map { NotchWindowController(screen: $0, model: model, sync: sync, settings: settings, pixelArt: pixelArt) }
+    }
+
+    /// The app has no menu bar of its own, but key equivalents still come from the main menu: this gives the
+    /// Settings and pixel editor windows copy, paste, undo and close.
+    private func installEditMenu() {
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z").keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
+        let mainMenu = NSMenu()
+        for submenu in [appMenu, editMenu] {
+            let item = NSMenuItem()
+            item.submenu = submenu
+            mainMenu.addItem(item)
+        }
+        NSApp.mainMenu = mainMenu
     }
 
     /// Debug: renders the menu's playback controls in both appearances, since menus can't be captured while open.

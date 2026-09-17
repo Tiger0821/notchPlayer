@@ -9,12 +9,17 @@ final class SettingsWindowController {
     private let settings: AppSettings
     private let model: NowPlayingModel
     private let sync: AutoSyncController
+    private let pixelArt: PixelArtLibrary
+    private let pixelEditors: PixelEditorWindows
     private var window: NSWindow?
 
-    init(settings: AppSettings, model: NowPlayingModel, sync: AutoSyncController) {
+    init(settings: AppSettings, model: NowPlayingModel, sync: AutoSyncController, pixelArt: PixelArtLibrary,
+         pixelEditors: PixelEditorWindows) {
         self.settings = settings
         self.model = model
         self.sync = sync
+        self.pixelArt = pixelArt
+        self.pixelEditors = pixelEditors
     }
 
     func show() {
@@ -40,8 +45,10 @@ final class SettingsWindowController {
     private func makeWindow() -> NSWindow {
         let tabs = SettingsTabViewController()
         tabs.tabStyle = .toolbar
-        tabs.addTabViewItem(tab("General", "gearshape", height: 520, GeneralSettingsView(settings: settings)))
+        tabs.addTabViewItem(tab("General", "gearshape", height: 520, GeneralSettingsView(settings: settings, pixelArt: pixelArt)))
         tabs.addTabViewItem(tab("Lyrics", "text.quote", height: 490, LyricsSettingsView(settings: settings, model: model)))
+        tabs.addTabViewItem(tab("Pixel Art", "paintpalette", height: 680,
+                                PixelArtSettingsView(settings: settings, library: pixelArt, editors: pixelEditors)))
         tabs.addTabViewItem(tab("Sync", "waveform", height: 470,
                                 SyncSettingsView(settings: settings, sync: sync, latency: sync.latency,
                                                  music: model.music, model: model)))
@@ -85,11 +92,12 @@ final class SettingsTabViewController: NSTabViewController {
 
 struct GeneralSettingsView: View {
     @ObservedObject var settings: AppSettings
+    @ObservedObject var pixelArt: PixelArtLibrary
 
     var body: some View {
         Form {
             Section {
-                NotchPreview(settings: settings)
+                NotchPreview(settings: settings, pixelArt: pixelArt)
                     .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
             }
 
@@ -143,16 +151,35 @@ struct SliderRow: View {
 /// A live, actual-size preview of the lyrics beside the notch, using made-up sample lines.
 struct NotchPreview: View {
     @ObservedObject var settings: AppSettings
+    @ObservedObject var pixelArt: PixelArtLibrary
+    var samples = ["Neon rivers hum beneath the rain", "月光落在安靜的街角", "Hold on while the city sleeps"]
+
+    /// Lines that show off the different ways pixel art moves.
+    static let pixelArtSamples = ["Riding the bus to see you", "我們在雨中跳舞", "Paper planes and shooting stars",
+                                  "Hold my heart like a balloon"]
 
     private static let lineDuration = 3.4
-    private static let sampleLines: [LyricLine] = {
-        let texts = ["Neon rivers hum beneath the rain", "月光落在安靜的街角", "Hold on while the city sleeps"]
-        return texts.enumerated().map { index, text in
+
+    private static func lines(for texts: [String]) -> [LyricLine] {
+        texts.enumerated().map { index, text in
             let start = Double(index) * lineDuration
             let end = start + lineDuration - 0.5
             return LyricLine(start: start, end: end, words: WordTiming.estimate(text: text, start: start, end: end))
         }
-    }()
+    }
+
+    /// The same line a whole cycle later, so the first line waits unsung while the last one plays.
+    private static func delayed(_ line: LyricLine, by delay: TimeInterval) -> LyricLine {
+        LyricLine(start: line.start + delay, end: line.end + delay,
+                  words: line.words.map { LyricWord(text: $0.text, start: $0.start + delay, end: $0.end + delay) })
+    }
+
+    private func karaoke(_ line: LyricLine, time: TimeInterval, width: CGFloat, alignment: Alignment) -> KaraokeLineView {
+        KaraokeLineView(line: line, time: time, fontSize: CGFloat(settings.fontSize), width: width, alignment: alignment,
+                        art: settings.pixelArtEnabled ? pixelArt.art(for: line) : [:],
+                        whiteArt: settings.pixelArtWhite,
+                        artDirection: alignment == .trailing ? -1 : 1)
+    }
 
     private var screen: (width: CGFloat, notch: CGFloat) {
         let screen = NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
@@ -164,35 +191,32 @@ struct NotchPreview: View {
     var body: some View {
         let (screenWidth, notchWidth) = screen
         let wing = CGFloat(settings.wingWidth)
-        let fontSize = CGFloat(settings.fontSize)
+        let sampleLines = Self.lines(for: samples)
 
         VStack(alignment: .leading, spacing: 10) {
-            // The bar is an overlay so its real (often wider-than-window) size never stretches the form; it's clipped instead.
-            LinearGradient(colors: [Color(red: 0.23, green: 0.32, blue: 0.62), Color(red: 0.55, green: 0.33, blue: 0.58)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-            .frame(maxWidth: .infinity)
-            .frame(height: 64)
-            .overlay(alignment: .top) {
-                Rectangle().fill(.white.opacity(0.18)).frame(height: 32)
-            }
-            .overlay(alignment: .top) {
-                TimelineView(.animation) { context in
-                    let cycle = Self.lineDuration * Double(Self.sampleLines.count)
+            // Wide strips make the bar wider than this window, so scale it down and show the whole thing.
+            GeometryReader { proxy in
+                let scale = min(1, proxy.size.width / (wing * 2 + notchWidth))
+                LinearGradient(colors: [Color(red: 0.23, green: 0.32, blue: 0.62), Color(red: 0.55, green: 0.33, blue: 0.58)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                .frame(width: proxy.size.width, height: 64)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(.white.opacity(0.18)).frame(height: 32 * scale)
+                }
+                .overlay(alignment: .top) {
+                    TimelineView(.animation) { context in
+                    let cycle = Self.lineDuration * Double(sampleLines.count)
                     let time = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle)
-                    let index = min(Int(time / Self.lineDuration), Self.sampleLines.count - 1)
+                    let index = min(Int(time / Self.lineDuration), sampleLines.count - 1)
 
-                    let line = Self.sampleLines[index]
-                    let next = Self.sampleLines[(index + 1) % Self.sampleLines.count]
+                    let line = sampleLines[index]
+                    let next = index + 1 < sampleLines.count ? sampleLines[index + 1] : Self.delayed(sampleLines[0], by: cycle)
                     let onLeft = index.isMultiple(of: 2)
                     let textWidth = max(wing - NotchLayout.wingInnerPadding - NotchLayout.wingOuterPadding, 0)
 
                     HStack(spacing: 0) {
                         Group {
-                            if onLeft {
-                                KaraokeLineView(line: line, time: time, fontSize: fontSize, width: textWidth, alignment: .trailing)
-                            } else {
-                                KaraokeLineView(line: next, time: time, fontSize: fontSize, width: textWidth, alignment: .trailing)
-                            }
+                            karaoke(onLeft ? line : next, time: time, width: textWidth, alignment: .trailing)
                         }
                         .padding(.leading, NotchLayout.wingOuterPadding)
                         .padding(.trailing, NotchLayout.wingInnerPadding)
@@ -202,24 +226,22 @@ struct NotchPreview: View {
                         Circle().fill(Color(white: 0.12)).frame(width: 7, height: 7).frame(width: notchWidth)
 
                         Group {
-                            if onLeft {
-                                KaraokeLineView(line: next, time: time, fontSize: fontSize, width: textWidth, alignment: .leading)
-                            } else {
-                                KaraokeLineView(line: line, time: time, fontSize: fontSize, width: textWidth, alignment: .leading)
-                            }
+                            karaoke(onLeft ? next : line, time: time, width: textWidth, alignment: .leading)
                         }
                         .padding(.leading, NotchLayout.wingInnerPadding)
                         .padding(.trailing, NotchLayout.wingOuterPadding)
                         .frame(width: wing)
                     }
                     .frame(height: 32)
-                    .frame(height: 32)
+                    .frame(width: wing * 2 + notchWidth, height: 32)
                     .background(UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10, style: .continuous).fill(.black))
-                    .fixedSize()
+                    .scaleEffect(scale, anchor: .top)
                     .animation(.easeOut(duration: 0.45), value: index)
+                    }
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(height: 64)
             .environment(\.colorScheme, .dark)
 
             let covered = min((notchWidth + wing * 2) / screenWidth, 1)

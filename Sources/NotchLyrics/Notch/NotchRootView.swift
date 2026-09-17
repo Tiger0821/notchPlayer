@@ -7,12 +7,13 @@ struct NotchRootView: View {
     @ObservedObject var music: MusicController
     @ObservedObject var sync: AutoSyncController
     @ObservedObject var settings: AppSettings
+    @ObservedObject var pixelArt: PixelArtLibrary
 
     var body: some View {
         let wing = geometry.clampedWing(settings.wingWidth)
 
-        LyricsBar(model: model, music: music, sync: sync, settings: settings, wing: wing,
-                  notchWidth: geometry.notchWidth, hasRealNotch: geometry.hasRealNotch)
+        LyricsBar(model: model, music: music, sync: sync, settings: settings, pixelArt: pixelArt,
+                  wing: wing, notchWidth: geometry.notchWidth, hasRealNotch: geometry.hasRealNotch)
             .frame(width: geometry.width(wing: wing), height: geometry.barHeight)
             .background(
                 UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10, style: .continuous)
@@ -119,6 +120,7 @@ struct LyricsBar: View {
     @ObservedObject var music: MusicController
     @ObservedObject var sync: AutoSyncController
     @ObservedObject var settings: AppSettings
+    @ObservedObject var pixelArt: PixelArtLibrary
     let wing: CGFloat
     let notchWidth: CGFloat
     let hasRealNotch: Bool
@@ -156,7 +158,10 @@ struct LyricsBar: View {
             switch slot {
             case .line(let line, _):
                 // A line that hasn't started has no sung words yet, so it reads as the dimmed line coming up.
-                KaraokeLineView(line: line, time: time, fontSize: fontSize, width: textWidth, alignment: alignment)
+                KaraokeLineView(line: line, time: time, fontSize: fontSize, width: textWidth, alignment: alignment,
+                                art: settings.pixelArtEnabled ? pixelArt.art(for: line) : [:],
+                                whiteArt: settings.pixelArtWhite,
+                                artDirection: alignment == .trailing ? -1 : 1)
             case .text(let text, let dimmed):
                 Text(text)
                     .font(.system(size: fontSize, weight: dimmed ? .medium : .semibold))

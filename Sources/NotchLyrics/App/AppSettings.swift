@@ -15,6 +15,10 @@ final class AppSettings: ObservableObject {
     @Published var autoSync: Bool { didSet { defaults.set(autoSync, forKey: "autoSync") } }
     /// Take the lyrics, and their timing, from Music's own lyrics pane when it is readable.
     @Published var appleMusicLyrics: Bool { didSet { defaults.set(appleMusicLyrics, forKey: "appleMusicLyrics") } }
+    /// Little pixel pictures beside words like "love" or "car" as they're sung.
+    @Published var pixelArtEnabled: Bool { didSet { defaults.set(pixelArtEnabled, forKey: "pixelArtEnabled") } }
+    /// Draw the pixel art in white, like the lyrics, instead of in color.
+    @Published var pixelArtWhite: Bool { didSet { defaults.set(pixelArtWhite, forKey: "pixelArtWhite") } }
 
     init() {
         defaults.register(defaults: [
@@ -26,6 +30,8 @@ final class AppSettings: ObservableObject {
             "useNetEase": true,
             "autoSync": true,
             "appleMusicLyrics": false,
+            "pixelArtEnabled": true,
+            "pixelArtWhite": false,
         ])
         // Timing is automatic now; drop the old manual offset.
         defaults.removeObject(forKey: "offsetMs")
@@ -38,10 +44,18 @@ final class AppSettings: ObservableObject {
         useNetEase = defaults.bool(forKey: "useNetEase")
         autoSync = defaults.bool(forKey: "autoSync")
         appleMusicLyrics = defaults.bool(forKey: "appleMusicLyrics")
+        pixelArtEnabled = defaults.bool(forKey: "pixelArtEnabled")
+        pixelArtWhite = defaults.bool(forKey: "pixelArtWhite")
     }
 
     var lyricsFolder: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music/NotchLyrics", isDirectory: true)
+    }
+
+    /// Where the user's pixel art lives.
+    var supportFolder: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("NotchLyrics", isDirectory: true)
     }
 
     var cacheFolder: URL {
