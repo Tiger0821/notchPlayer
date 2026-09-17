@@ -10,7 +10,7 @@ import LyricsCore
 @MainActor
 final class MusicLyricsReader: ObservableObject {
     /// The `Lyrics.source` these carry, so the rest of the app can tell they are already aligned.
-    static let sourceName = "Apple Music"
+    nonisolated static let sourceName = "Apple Music"
 
     enum Status: Equatable {
         case off
@@ -21,6 +21,9 @@ final class MusicLyricsReader: ObservableObject {
     }
 
     @Published private(set) var lyrics: Lyrics?
+    /// The lines Music has actually been seen starting, with when it started them. Lines it hasn't reached
+    /// yet aren't in here — their times would be guesses, and guesses are what this exists to replace.
+    @Published private(set) var anchors: [LineAnchor] = []
     @Published private(set) var status: Status = .off
 
     /// Apple's own line changes are the timing, so sample often enough to land within a beat of them.
@@ -53,6 +56,7 @@ final class MusicLyricsReader: ObservableObject {
         starts = []
         currentIndex = nil
         lyrics = nil
+        anchors = []
     }
 
     func stop() {
@@ -63,6 +67,7 @@ final class MusicLyricsReader: ObservableObject {
         starts = []
         currentIndex = nil
         lyrics = nil
+        anchors = []
         status = .off
     }
 
@@ -102,6 +107,7 @@ final class MusicLyricsReader: ObservableObject {
             texts = incoming
             starts = Array(repeating: nil, count: incoming.count)
             currentIndex = nil
+            anchors = []
         }
         status = .reading(lines: texts.count)
 
@@ -138,6 +144,9 @@ final class MusicLyricsReader: ObservableObject {
                 words: WordTiming.estimate(text: texts[i], start: timeline[i], end: end))
         }
         lyrics = Lyrics(lines: lines, timing: .line, source: Self.sourceName)
+        anchors = texts.indices.compactMap { i in
+            starts[i].map { LineAnchor(text: texts[i], start: $0) }
+        }
     }
 
     private func lyricsArea() -> AXUIElement? {
