@@ -49,11 +49,13 @@ struct PixelArtSettingsView: View {
                     Text("Show pixel art in the lyrics")
                     Text("Words like “love”, “car” and “雨” get a little picture as they're sung, once per line.")
                 }
+                .onChange(of: settings.pixelArtEnabled) { Haptics.changed() }
                 Picker("Style", selection: $settings.pixelArtWhite) {
                     Text("Color").tag(false)
                     Text("White").tag(true)
                 }
                 .pickerStyle(.segmented)
+                .onChange(of: settings.pixelArtWhite) { Haptics.changed() }
             }
 
             Section {
