@@ -82,6 +82,50 @@ final class NowPlayingModel: ObservableObject {
         }
     }
 
+    /// Every way taking timing from Music can be doing nothing, said out loud. Silence here used to look
+    /// exactly like the lyrics being wrong.
+    enum MusicTimingState: Equatable {
+        case off
+        case needsPermission
+        case needsLyricsPane
+        /// Music's lines are being read, but none of them has matched the lyrics on screen.
+        case noMatch(readingLines: Int)
+        /// Reading, matching, and moving the timing.
+        case timing(matchedLines: Int)
+
+        var title: String {
+            switch self {
+            case .off: "Not using Music's timing"
+            case .needsPermission: "Music's lyrics can't be read"
+            case .needsLyricsPane: "Music's lyrics pane isn't open"
+            case .noMatch: "No lines matched yet"
+            case .timing(let matched): "^[\(matched) line](inflect: true) matched"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .off: "The lyrics are shown with the timing they came with."
+            case .needsPermission: "Allow NotchLyrics in Privacy & Security › Accessibility."
+            case .needsLyricsPane: "Open the lyrics view in Music, and play the song — a line's timing is read as Music reaches it."
+            case .noMatch(let lines):
+                "Music is showing ^[\(lines) line](inflect: true), but none of them is a line in the lyrics on screen yet. Timing moves once two of them match, so play a little further in."
+            case .timing: "The lyrics on screen are on Music's own timing."
+            }
+        }
+    }
+
+    var musicTimingState: MusicTimingState {
+        guard settings.appleMusicTiming else { return .off }
+        switch appleLyrics.status {
+        case .needsPermission: return .needsPermission
+        case .off, .needsLyricsPane: return .needsLyricsPane
+        case .reading(let lines):
+            if let matchedLines { return .timing(matchedLines: matchedLines) }
+            return .noMatch(readingLines: lines)
+        }
+    }
+
     /// What to tell the user when Music's pane is wanted but can't be read right now.
     var appleLyricsHint: String? {
         guard settings.appleMusicTiming || settings.isEnabled(.appleMusic) else { return nil }
