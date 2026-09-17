@@ -423,11 +423,16 @@ struct SyncSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle(isOn: $settings.appleMusicTiming) {
-                    Text("Take timing from Music's own lyrics")
-                    Text("Music marks the line it is singing, which is Apple's own timing for the song. Each line it reaches is matched to the same line in the lyrics you have, so the words stay word-by-word and only the clock changes. Needs the lyrics view open in Music.")
+                Picker(selection: timing) {
+                    ForEach(TimingSource.allCases) { source in
+                        Text(source.title).tag(source)
+                    }
+                } label: {
+                    Text("Timing")
+                    Text(timingExplanation)
                 }
-                if let hint = model.appleLyricsHint {
+                .pickerStyle(.segmented)
+                if settings.timingSource == .musicLyrics, let hint = model.appleLyricsHint {
                     LabeledContent {
                         if case .needsPermission = model.appleLyrics.status {
                             Button("Open Privacy Settings…") { openAccessibilitySettings() }
@@ -443,16 +448,8 @@ struct SyncSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Toggle(isOn: $settings.autoSync) {
-                    Text("Sync lyrics automatically")
-                    Text("Listens to Music on this Mac and matches the sung words to fetched lyrics. Audio is never recorded or sent anywhere.")
-                }
             } header: {
                 Text("Where timing comes from")
-            } footer: {
-                Text("These are two different ways to line lyrics up, so only one can be on. Turning one on turns the other off.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             Section("Status") {
@@ -484,6 +481,27 @@ struct SyncSettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// The picker writes through the pair of switches underneath, which keep each other off.
+    private var timing: Binding<TimingSource> {
+        Binding(
+            get: { settings.timingSource },
+            set: { chosen in
+                guard chosen != settings.timingSource else { return }
+                settings.timingSource = chosen
+            })
+    }
+
+    private var timingExplanation: String {
+        switch settings.timingSource {
+        case .asFetched:
+            "The times that came with the lyrics. Right for a source that times every word, off by a second or two for most of the rest."
+        case .musicLyrics:
+            "Music marks the line it is singing, which is Apple's own timing for the song. Each line it reaches is matched to the same line in the lyrics you have, so the words stay word-by-word and only the clock changes. Needs the lyrics view open in Music."
+        case .listening:
+            "Listens to Music on this Mac and matches the sung words to the lyrics. Audio is never recorded or sent anywhere."
+        }
     }
 
     private var statusSymbol: String {
