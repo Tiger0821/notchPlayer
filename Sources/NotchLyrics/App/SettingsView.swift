@@ -270,11 +270,43 @@ struct LyricsSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Sources") {
-                Toggle(isOn: $settings.useNetEase) {
-                    Text("Word-by-word timing from NetEase")
-                    Text("Unofficial service with the best coverage for Chinese songs. LRCLIB is always used.")
+            Section {
+                // Drag to rank; the first source with lyrics for the song wins, and switching one off skips it.
+                List {
+                    ForEach(settings.sourceOrder) { source in
+                        HStack(spacing: 10) {
+                            Toggle("", isOn: Binding(
+                                get: { settings.isEnabled(source) },
+                                set: { settings.setEnabled($0, for: source) }))
+                                .labelsHidden()
+                            Text(source.title)
+                            Spacer(minLength: 8)
+                            Image(systemName: "line.3.horizontal")
+                                .foregroundStyle(.tertiary)
+                                .accessibilityHidden(true)
+                        }
+                        .opacity(settings.isEnabled(source) ? 1 : 0.5)
+                        .animation(.easeInOut(duration: 0.15), value: settings.disabledSources)
+                    }
+                    .onMove { indices, destination in
+                        withAnimation(.snappy(duration: 0.25)) {
+                            settings.moveSources(from: indices, to: destination)
+                        }
+                    }
                 }
+                .frame(height: CGFloat(settings.sourceOrder.count) * 28 + 16)
+                .animation(.snappy(duration: 0.25), value: settings.sourceOrder)
+                .alternatingRowBackgrounds()
+
+                Toggle("Prefer word-by-word timing", isOn: $settings.preferWordTiming)
+            } header: {
+                Text("Where lyrics come from")
+            } footer: {
+                Text("Sources are tried from the top; the first with lyrics for the track is used. With word-by-word timing preferred, a lower source offering per-word timing takes precedence over a line-timed source above it. NetEase is an unofficial service with the best coverage for Chinese songs.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle(isOn: $settings.convertToTraditional) {
                     Text("Show Chinese lyrics in Traditional characters")
                     Text("Japanese lyrics are left unchanged.")

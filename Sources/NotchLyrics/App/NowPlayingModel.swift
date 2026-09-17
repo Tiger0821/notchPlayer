@@ -65,9 +65,11 @@ final class NowPlayingModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        Publishers.Merge(
-            settings.$useNetEase.removeDuplicates().dropFirst().map { _ in () },
-            settings.$convertToTraditional.removeDuplicates().dropFirst().map { _ in () }
+        Publishers.MergeMany(
+            settings.$sourceOrder.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            settings.$disabledSources.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            settings.$preferWordTiming.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            settings.$convertToTraditional.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher()
         )
         .receive(on: RunLoop.main)
         .sink { [weak self] in self?.reload(ignoreCache: false) }
@@ -106,12 +108,14 @@ final class NowPlayingModel: ObservableObject {
             lyricsState = .loading
         }
         let query = TrackQuery(title: track.title, artist: track.artist, album: track.album, duration: track.duration)
-        let useNetEase = settings.useNetEase
+        let order = settings.activeSources
+        let preferWordTiming = settings.preferWordTiming
         let traditional = settings.convertToTraditional
 
         loadTask = Task { [service] in
             let lyrics = await service.lyrics(
-                for: query, useNetEase: useNetEase, convertToTraditional: traditional, ignoreCache: ignoreCache)
+                for: query, order: order, preferWordTiming: preferWordTiming,
+                convertToTraditional: traditional, ignoreCache: ignoreCache)
             guard !Task.isCancelled, self.music.track?.id == track.id else { return }
             // Apple's own timing wins when it is there; the fetched lyrics are the fallback for songs Music
             // has no lyrics for, or while its pane isn't readable.

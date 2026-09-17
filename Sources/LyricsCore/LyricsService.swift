@@ -11,49 +11,44 @@ public actor LyricsService {
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }
 
-    /// Picks the best lyrics available. Ranking: local word-timed > NetEase word-timed > local line-timed
-    /// > LRCLIB line-timed > NetEase line-timed.
-    public func lyrics(for query: TrackQuery, useNetEase: Bool, convertToTraditional: Bool, ignoreCache: Bool) async -> Lyrics? {
-        let localLyrics = local.fetch(query)?.parse()
-
-        var remoteLyrics: Lyrics?
-        if localLyrics?.timing != .word {
-            let cacheURL = cacheFile(for: query, useNetEase: useNetEase)
-            if !ignoreCache, let cached = loadCache(cacheURL) {
-                remoteLyrics = cached.raw?.parse()
-            } else {
-                async let lrclib = LRCLibProvider().fetch(query)
-                async let netease = fetchNetEase(query, enabled: useNetEase)
-                let candidates = await [netease, lrclib].compactMap { $0 }
-                let best = candidates
-                    .compactMap { raw in raw.parse().map { (raw, $0) } }
-                    .max { Self.score($0.1) < Self.score($1.1) }
-                saveCache(best?.0, to: cacheURL)
-                remoteLyrics = best?.1
-            }
+    /// Tries each source in the order given and takes the first that has lyrics for the track, so the ranking
+    /// is the user's rather than ours.
+    public func lyrics(
+        for query: TrackQuery, order: [LyricsSourceKind], preferWordTiming: Bool,
+        convertToTraditional: Bool, ignoreCache: Bool
+    ) async -> Lyrics? {
+        let cacheURL = cacheFile(for: query, order: order, preferWordTiming: preferWordTiming)
+        if !ignoreCache, let cached = loadCache(cacheURL) {
+            return finish(cached.raw?.parse(), convertToTraditional: convertToTraditional)
         }
-
-        guard var result = [localLyrics, remoteLyrics].compactMap({ $0 }).max(by: { Self.score($0) < Self.score($1) }) else {
-            return nil
+        // Each source is asked once; whether a word-by-word version beats a higher-ranked line-timed one is
+        // the user's call, so run the list twice — word timing first, then anything.
+        var fetched: [(source: LyricsSourceKind, raw: RawLyrics, lyrics: Lyrics)] = []
+        for source in order {
+            guard let raw = await fetch(source, query), let parsed = raw.parse() else { continue }
+            fetched.append((source, raw, parsed))
+            if !preferWordTiming { break }
+            if parsed.timing == .word { break }
         }
-        if convertToTraditional, !result.containsKana {
-            result = result.mapText(TextNormalize.toTraditional)
-        }
-        return result
+        let best = preferWordTiming
+            ? (fetched.first { $0.lyrics.timing == .word } ?? fetched.first)
+            : fetched.first
+        saveCache(best?.raw, to: cacheURL)
+        return finish(best?.lyrics, convertToTraditional: convertToTraditional)
     }
 
-    private func fetchNetEase(_ query: TrackQuery, enabled: Bool) async -> RawLyrics? {
-        guard enabled else { return nil }
-        return await NetEaseProvider().fetch(query)
+    private func fetch(_ source: LyricsSourceKind, _ query: TrackQuery) async -> RawLyrics? {
+        switch source {
+        case .localFiles: local.fetch(query)
+        case .netease: await NetEaseProvider().fetch(query)
+        case .lrclib: await LRCLibProvider().fetch(query)
+        }
     }
 
-    static func score(_ lyrics: Lyrics) -> Int {
-        let sourceBonus = switch lyrics.source {
-        case "Local file": 2
-        case "LRCLIB": 1
-        default: 0
-        }
-        return lyrics.timing.rawValue * 10 + sourceBonus
+    private func finish(_ lyrics: Lyrics?, convertToTraditional: Bool) -> Lyrics? {
+        guard let lyrics else { return nil }
+        guard convertToTraditional, !lyrics.containsKana else { return lyrics }
+        return lyrics.mapText(TextNormalize.toTraditional)
     }
 
     // MARK: - Cache
@@ -63,8 +58,8 @@ public actor LyricsService {
         var savedAt: Date
     }
 
-    private func cacheFile(for query: TrackQuery, useNetEase: Bool) -> URL {
-        let identity = "\(query.title)|\(query.artist)|\(Int(query.duration.rounded()))|netease=\(useNetEase)"
+    private func cacheFile(for query: TrackQuery, order: [LyricsSourceKind], preferWordTiming: Bool) -> URL {
+        let identity = "\(query.title)|\(query.artist)|\(Int(query.duration.rounded()))|order=\(order.map(\.rawValue).joined(separator: ","))|word=\(preferWordTiming)"
         let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
         return cacheDirectory.appendingPathComponent("\(digest).json")
     }
