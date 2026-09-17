@@ -1,4 +1,5 @@
 import Foundation
+import LyricsCore
 
 @MainActor
 final class AppSettings: ObservableObject {
@@ -10,7 +11,16 @@ final class AppSettings: ObservableObject {
     @Published var wingWidth: Double { didSet { defaults.set(wingWidth, forKey: "wingWidth") } }
     @Published var showOnExternalDisplays: Bool { didSet { defaults.set(showOnExternalDisplays, forKey: "showOnExternalDisplays") } }
     @Published var convertToTraditional: Bool { didSet { defaults.set(convertToTraditional, forKey: "convertToTraditional") } }
-    @Published var useNetEase: Bool { didSet { defaults.set(useNetEase, forKey: "useNetEase") } }
+    /// Lyrics sources in the user's own order of preference; the first one with lyrics for the track wins.
+    @Published var sourceOrder: [LyricsSourceKind] {
+        didSet { defaults.set(sourceOrder.map(\.rawValue), forKey: "sourceOrder") }
+    }
+    /// Sources the user has switched off; they stay in the list but are skipped.
+    @Published var disabledSources: Set<String> {
+        didSet { defaults.set(Array(disabledSources), forKey: "disabledSources") }
+    }
+    /// Take word-by-word lyrics from anywhere in the list before settling for line-timed ones.
+    @Published var preferWordTiming: Bool { didSet { defaults.set(preferWordTiming, forKey: "preferWordTiming") } }
     /// Listen to Music's audio to line lyrics up automatically. Can't be on together with `appleMusicLyrics`.
     @Published var autoSync: Bool {
         didSet {
@@ -38,7 +48,7 @@ final class AppSettings: ObservableObject {
             "wingWidth": 250.0,
             "showOnExternalDisplays": true,
             "convertToTraditional": true,
-            "useNetEase": true,
+            "preferWordTiming": true,
             "autoSync": true,
             "appleMusicLyrics": false,
             "pixelArtEnabled": true,
@@ -52,7 +62,16 @@ final class AppSettings: ObservableObject {
         wingWidth = defaults.double(forKey: "wingWidth")
         showOnExternalDisplays = defaults.bool(forKey: "showOnExternalDisplays")
         convertToTraditional = defaults.bool(forKey: "convertToTraditional")
-        useNetEase = defaults.bool(forKey: "useNetEase")
+        preferWordTiming = defaults.bool(forKey: "preferWordTiming")
+        let stored = (defaults.array(forKey: "sourceOrder") as? [String] ?? []).compactMap(LyricsSourceKind.init)
+        // Anything new in a later version joins the end rather than going missing.
+        sourceOrder = stored + LyricsSourceKind.allCases.filter { !stored.contains($0) }
+        var off = Set(defaults.array(forKey: "disabledSources") as? [String] ?? [])
+        // Carry over the old NetEase switch the first time.
+        if defaults.object(forKey: "disabledSources") == nil, defaults.object(forKey: "useNetEase") as? Bool == false {
+            off.insert(LyricsSourceKind.netease.rawValue)
+        }
+        disabledSources = off
         if defaults.bool(forKey: "autoSync"), defaults.bool(forKey: "appleMusicLyrics") {
             // Saved while both could be on. Music's own lyrics is off unless someone turned it on, so it wins.
             defaults.set(false, forKey: "autoSync")
@@ -61,6 +80,23 @@ final class AppSettings: ObservableObject {
         appleMusicLyrics = defaults.bool(forKey: "appleMusicLyrics")
         pixelArtEnabled = defaults.bool(forKey: "pixelArtEnabled")
         pixelArtWhite = defaults.bool(forKey: "pixelArtWhite")
+    }
+
+    /// The enabled sources, in order.
+    var activeSources: [LyricsSourceKind] {
+        sourceOrder.filter { !disabledSources.contains($0.rawValue) }
+    }
+
+    func isEnabled(_ source: LyricsSourceKind) -> Bool {
+        !disabledSources.contains(source.rawValue)
+    }
+
+    func setEnabled(_ enabled: Bool, for source: LyricsSourceKind) {
+        if enabled { disabledSources.remove(source.rawValue) } else { disabledSources.insert(source.rawValue) }
+    }
+
+    func moveSources(from offsets: IndexSet, to destination: Int) {
+        sourceOrder.move(fromOffsets: offsets, toOffset: destination)
     }
 
     var lyricsFolder: URL {

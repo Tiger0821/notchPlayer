@@ -15,6 +15,24 @@ public struct TrackQuery: Hashable, Sendable {
     }
 }
 
+/// Where lyrics can be fetched from. Music's own lyrics view isn't one of these: the app reads it out of
+/// Music's window rather than fetching it, and it has its own switch.
+public enum LyricsSourceKind: String, CaseIterable, Codable, Identifiable, Sendable {
+    case localFiles
+    case netease
+    case lrclib
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .localFiles: "Local Files"
+        case .netease: "NetEase Cloud Music"
+        case .lrclib: "LRCLIB"
+        }
+    }
+}
+
 public enum LyricsFormat: String, Codable, Sendable {
     case lrc
     case yrc
