@@ -30,6 +30,7 @@ macOS asks for two permissions:
 |---|---|---|
 | Control **Music** | Read the current song and position; play/pause/skip | ❝ menu → *Allow NotchLyrics to Control Music…* |
 | Record audio from other apps | Automatic sync (audio is analyzed on-device, never recorded or sent) | Settings › Sync → *Open Privacy Settings…* |
+| **Accessibility** | Only if *Use Music's own lyrics* is on: reads the lyrics pane in Music | Settings › Sync → *Open Privacy Settings…* |
 
 The app is ad-hoc signed for personal use, so macOS may ask again after a rebuild.
 
@@ -49,6 +50,17 @@ swift test
 The status for the current song is shown in the ❝ menu and in Settings › Sync. There, *Re-sync* forgets a song's saved timing and listens again.
 
 ## Where lyrics come from
+
+### Music's own lyrics
+
+Turn on **Settings › Sync → Use Music's own lyrics** to take the lyrics, and their timing, straight from
+Music's lyrics pane instead of fetching them. Apple's line changes *are* the timing, so nothing has to be
+lined up afterwards — auto-sync is skipped for these songs, and only the output device's delay is
+compensated. It needs Accessibility permission and the lyrics view open in Music; Apple exposes no per-word
+timing, so word timing inside a line is estimated. Songs Music has no lyrics for fall back to the sources
+below.
+
+### Fetched lyrics
 
 Sources are ranked by quality; the best available wins:
 
@@ -90,7 +102,7 @@ Open from the ❝ menu bar item. Settings has four tabs:
 
 - **General:** live preview, show/hide, drawn notch on other displays, text size, width beside the notch
 - **Lyrics:** NetEase word timing, Traditional Chinese conversion, local lyrics folder, clear cache
-- **Sync:** automatic sync on/off, current song status, output device delay, re-sync
+- **Sync:** where timing comes from (Music's own lyrics, automatic sync), current song status, output device delay, re-sync
 - **About:** version and project link
 
 ## Notes & limitations

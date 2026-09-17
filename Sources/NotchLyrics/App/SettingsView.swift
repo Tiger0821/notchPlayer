@@ -42,8 +42,9 @@ final class SettingsWindowController {
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(tab("General", "gearshape", height: 520, GeneralSettingsView(settings: settings)))
         tabs.addTabViewItem(tab("Lyrics", "text.quote", height: 490, LyricsSettingsView(settings: settings, model: model)))
-        tabs.addTabViewItem(tab("Sync", "waveform", height: 400,
-                                SyncSettingsView(settings: settings, sync: sync, latency: sync.latency, music: model.music)))
+        tabs.addTabViewItem(tab("Sync", "waveform", height: 470,
+                                SyncSettingsView(settings: settings, sync: sync, latency: sync.latency,
+                                                 music: model.music, model: model)))
         tabs.addTabViewItem(tab("About", "info.circle", height: 300, AboutSettingsView()))
 
         let window = NSWindow(contentViewController: tabs)
@@ -299,13 +300,28 @@ struct SyncSettingsView: View {
     @ObservedObject var sync: AutoSyncController
     @ObservedObject var latency: OutputLatencyMonitor
     @ObservedObject var music: MusicController
+    @ObservedObject var model: NowPlayingModel
 
     var body: some View {
         Form {
-            Section {
+            Section("Where timing comes from") {
+                Toggle(isOn: $settings.appleMusicLyrics) {
+                    Text("Use Music's own lyrics")
+                    Text("Takes the lyrics, and their timing, straight from Music's lyrics pane, so they are already in time. Needs the lyrics view open in Music. Songs it has no lyrics for fall back to the sources below.")
+                }
+                if let hint = model.appleLyricsHint {
+                    LabeledContent {
+                        if case .needsPermission = model.appleLyrics.status {
+                            Button("Open Privacy Settings…") { openAccessibilitySettings() }
+                        }
+                    } label: {
+                        Text("Music's lyrics can't be read yet")
+                        Text(hint)
+                    }
+                }
                 Toggle(isOn: $settings.autoSync) {
                     Text("Sync lyrics automatically")
-                    Text("Listens to Music on this Mac and matches the sung words to the lyrics. Audio is never recorded or sent anywhere.")
+                    Text("For lyrics that come from anywhere else: listens to Music on this Mac and matches the sung words to the lyrics. Audio is never recorded or sent anywhere.")
                 }
             }
 
@@ -345,13 +361,20 @@ struct SyncSettingsView: View {
         case .synced, .remembered: "checkmark.circle.fill"
         case .listening, .preparingModel: "waveform"
         case .needsPermission, .unavailable, .noMatch: "exclamationmark.triangle.fill"
+        case .notNeeded: "checkmark.circle.fill"
         case .off, .waiting: "circle.dashed"
         }
     }
 
+    private func openAccessibilitySettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     private var statusColor: Color {
         switch sync.status {
-        case .synced, .remembered: .green
+        case .synced, .remembered, .notNeeded: .green
         case .needsPermission, .unavailable, .noMatch: .orange
         default: .secondary
         }
