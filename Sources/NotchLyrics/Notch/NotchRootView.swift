@@ -11,7 +11,8 @@ struct NotchRootView: View {
     var body: some View {
         let wing = geometry.clampedWing(settings.wingWidth)
 
-        LyricsBar(model: model, music: music, sync: sync, settings: settings, wing: wing, notchWidth: geometry.notchWidth)
+        LyricsBar(model: model, music: music, sync: sync, settings: settings, wing: wing,
+                  notchWidth: geometry.notchWidth, hasRealNotch: geometry.hasRealNotch)
             .frame(width: geometry.width(wing: wing), height: geometry.barHeight)
             .background(
                 UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10, style: .continuous)
@@ -88,6 +89,31 @@ struct BarContent {
     }
 }
 
+/// The bar runs behind the notch, so that stretch of it is never seen — except for the moment a Space slides
+/// past. Something belongs there.
+struct NotchSecret: View {
+    let width: CGFloat
+    /// Displays without a real notch draw their own, and would show this off, so they get nothing.
+    let hidden: Bool
+
+    /// Name and version, from the bundle, so it can't drift out of date.
+    private var label: String {
+        let info = Bundle.main.infoDictionary
+        let name = info?["CFBundleName"] as? String ?? "NotchLyrics"
+        let version = info?["CFBundleShortVersionString"] as? String ?? ""
+        return version.isEmpty ? name.uppercased() : "\(name.uppercased()) \(version)"
+    }
+
+    var body: some View {
+        Text(hidden ? label : "")
+            .font(.system(size: 7, weight: .medium, design: .rounded))
+            .kerning(1.6)
+            .foregroundStyle(Color.white.opacity(0.14))
+            .lineLimit(1)
+            .frame(width: width)
+    }
+}
+
 struct LyricsBar: View {
     @ObservedObject var model: NowPlayingModel
     @ObservedObject var music: MusicController
@@ -95,6 +121,7 @@ struct LyricsBar: View {
     @ObservedObject var settings: AppSettings
     let wing: CGFloat
     let notchWidth: CGFloat
+    let hasRealNotch: Bool
 
     private var textWidth: CGFloat {
         max(wing - NotchLayout.wingInnerPadding - NotchLayout.wingOuterPadding, 0)
@@ -110,7 +137,7 @@ struct LyricsBar: View {
                     .padding(.leading, NotchLayout.wingOuterPadding)
                     .padding(.trailing, NotchLayout.wingInnerPadding)
                     .frame(width: wing)
-                Color.clear.frame(width: notchWidth)
+                NotchSecret(width: notchWidth, hidden: hasRealNotch)
                 strip(content.right, alignment: .leading, time: time)
                     .padding(.leading, NotchLayout.wingInnerPadding)
                     .padding(.trailing, NotchLayout.wingOuterPadding)
