@@ -17,6 +17,8 @@ final class AutoSyncController: ObservableObject {
         case synced(offset: TimeInterval, matches: Int)
         case remembered(offset: TimeInterval)
         case noMatch
+        /// The lyrics are Music's own, so they arrive already in time.
+        case notNeeded
         case needsPermission
         case unavailable(String)
     }
@@ -87,6 +89,7 @@ final class AutoSyncController: ObservableObject {
         case .synced(let offset, let matches): String(format: "Auto-synced (%+.2fs, %d matches)", offset, matches)
         case .remembered(let offset): String(format: "Auto-synced (%+.2fs, remembered)", offset)
         case .noMatch: "Auto-sync: couldn't match this song"
+        case .notNeeded: "In sync with Music's own lyrics"
         case .needsPermission: "Auto-sync needs audio recording permission"
         case .unavailable(let reason): "Auto-sync unavailable: \(reason)"
         }
@@ -120,6 +123,18 @@ final class AutoSyncController: ObservableObject {
             aligner = nil
             songOffset = nil
             status = settings.autoSync ? .waiting : .off
+            updateCorrection()
+            return
+        }
+
+        // Music's own lyrics are timed by Music itself, so there is no lyric drift to measure and nothing
+        // to listen for. The output device's delay still applies, so leave that part of the correction.
+        guard lyrics.source != MusicLyricsReader.sourceName else {
+            stopSession()
+            lyricsKey = nil
+            aligner = nil
+            songOffset = 0
+            status = .notNeeded
             updateCorrection()
             return
         }

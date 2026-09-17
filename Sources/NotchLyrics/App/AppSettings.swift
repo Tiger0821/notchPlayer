@@ -13,6 +13,8 @@ final class AppSettings: ObservableObject {
     @Published var useNetEase: Bool { didSet { defaults.set(useNetEase, forKey: "useNetEase") } }
     /// Listen to Music's audio to line lyrics up automatically.
     @Published var autoSync: Bool { didSet { defaults.set(autoSync, forKey: "autoSync") } }
+    /// Take the lyrics, and their timing, from Music's own lyrics pane when it is readable.
+    @Published var appleMusicLyrics: Bool { didSet { defaults.set(appleMusicLyrics, forKey: "appleMusicLyrics") } }
 
     init() {
         defaults.register(defaults: [
@@ -23,6 +25,7 @@ final class AppSettings: ObservableObject {
             "convertToTraditional": true,
             "useNetEase": true,
             "autoSync": true,
+            "appleMusicLyrics": false,
         ])
         // Timing is automatic now; drop the old manual offset.
         defaults.removeObject(forKey: "offsetMs")
@@ -34,6 +37,7 @@ final class AppSettings: ObservableObject {
         convertToTraditional = defaults.bool(forKey: "convertToTraditional")
         useNetEase = defaults.bool(forKey: "useNetEase")
         autoSync = defaults.bool(forKey: "autoSync")
+        appleMusicLyrics = defaults.bool(forKey: "appleMusicLyrics")
     }
 
     var lyricsFolder: URL {
