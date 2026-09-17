@@ -103,7 +103,9 @@ struct GeneralSettingsView: View {
 
             Section("Display") {
                 Toggle("Show lyrics beside the notch", isOn: $settings.enabled)
+                    .onChange(of: settings.enabled) { Haptics.changed() }
                 Toggle("Draw a notch on displays without one", isOn: $settings.showOnExternalDisplays)
+                    .onChange(of: settings.showOnExternalDisplays) { Haptics.changed() }
             }
 
             Section("Size") {
@@ -143,6 +145,7 @@ struct SliderRow: View {
                 Image(systemName: largeSymbol).foregroundStyle(.secondary)
             }
             .labelsHidden()
+            .onChange(of: value) { Haptics.aligned() }
         }
         .padding(.vertical, 2)
     }
@@ -273,11 +276,17 @@ struct LyricsSettingsView: View {
             Section {
                 SourceRanking(settings: settings)
 
-                Toggle("Prefer word-by-word timing", isOn: $settings.preferWordTiming)
+                DisclosureGroup("Advanced") {
+                    Toggle(isOn: $settings.preferWordTiming) {
+                        Text("Take word-by-word timing from further down the list")
+                        Text("A source that times every word beats a line-timed one above it. Off, the list is followed exactly.")
+                    }
+                    .onChange(of: settings.preferWordTiming) { Haptics.changed() }
+                }
             } header: {
                 Text("Where lyrics come from")
             } footer: {
-                Text("Sources are tried from the top; the first with lyrics for the track is used. With word-by-word timing preferred, a lower source offering per-word timing takes precedence over a line-timed source above it. NetEase is an unofficial service with the best coverage for Chinese songs.")
+                Text("Sources are tried from the top; the first with lyrics for the track is used. NetEase is an unofficial service with the best coverage for Chinese songs.")
                     .foregroundStyle(.secondary)
             }
 
@@ -286,6 +295,7 @@ struct LyricsSettingsView: View {
                     Text("Show Chinese lyrics in Traditional characters")
                     Text("Japanese lyrics are left unchanged.")
                 }
+                .onChange(of: settings.convertToTraditional) { Haptics.changed() }
             }
 
             Section("Your lyrics files") {
@@ -330,7 +340,7 @@ private struct SourceRanking: View {
     @State private var dragging: LyricsSource?
     @State private var hovered: LyricsSource?
 
-    private static let rowHeight: CGFloat = 30
+    private static let rowHeight: CGFloat = 24
     private static let shift = Animation.snappy(duration: 0.22)
 
     var body: some View {
@@ -356,6 +366,7 @@ private struct SourceRanking: View {
                     }
                     .dropDestination(for: String.self) { _, _ in
                         dragging = nil
+                        Haptics.changed()
                         return true
                     } isTargeted: { over in
                         guard over, let dragging, dragging != source else { return }
@@ -382,6 +393,7 @@ private struct SourceRanking: View {
         withAnimation(Self.shift) {
             settings.moveSources(from: IndexSet(integer: from), to: to > from ? to + 1 : to)
         }
+        Haptics.aligned()
     }
 }
 
@@ -394,7 +406,10 @@ private struct SourceRankingRow: View {
         HStack(spacing: 10) {
             Toggle("", isOn: Binding(
                 get: { settings.isEnabled(source) },
-                set: { settings.setEnabled($0, for: source) }))
+                set: {
+                    settings.setEnabled($0, for: source)
+                    Haptics.changed()
+                }))
                 .labelsHidden()
                 // A switch would be the size of the row; this is a list of things to tick, not settings.
                 .toggleStyle(.checkbox)
@@ -490,6 +505,7 @@ struct SyncSettingsView: View {
             set: { chosen in
                 guard chosen != settings.timingSource else { return }
                 settings.timingSource = chosen
+                Haptics.changed()
             })
     }
 
