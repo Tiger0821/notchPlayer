@@ -327,8 +327,8 @@ struct LyricsSettingsView: View {
 /// opens the gap where it would land as you pass over it.
 private struct SourceRanking: View {
     @ObservedObject var settings: AppSettings
-    @State private var dragging: LyricsSourceKind?
-    @State private var hovered: LyricsSourceKind?
+    @State private var dragging: LyricsSource?
+    @State private var hovered: LyricsSource?
 
     private static let rowHeight: CGFloat = 30
     private static let shift = Animation.snappy(duration: 0.22)
@@ -376,7 +376,7 @@ private struct SourceRanking: View {
     }
 
     /// Slides the carried source into the row it is over, which is what opens the gap.
-    private func move(_ source: LyricsSourceKind, onto target: LyricsSourceKind) {
+    private func move(_ source: LyricsSource, onto target: LyricsSource) {
         guard let from = settings.sourceOrder.firstIndex(of: source),
               let to = settings.sourceOrder.firstIndex(of: target) else { return }
         withAnimation(Self.shift) {
@@ -387,7 +387,7 @@ private struct SourceRanking: View {
 
 private struct SourceRankingRow: View {
     @ObservedObject var settings: AppSettings
-    let source: LyricsSourceKind
+    let source: LyricsSource
     var hovered: Bool
 
     var body: some View {
@@ -423,9 +423,9 @@ struct SyncSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle(isOn: $settings.appleMusicLyrics) {
-                    Text("Use Music's own lyrics")
-                    Text("Takes the lyrics, and their timing, straight from Music's lyrics pane, so they're already in time. Needs the lyrics view open in Music. Songs Music has no lyrics for use fetched lyrics with their own timing.")
+                Toggle(isOn: $settings.appleMusicTiming) {
+                    Text("Take timing from Music's own lyrics")
+                    Text("Music marks the line it is singing, which is Apple's own timing for the song. Each line it reaches is matched to the same line in the lyrics you have, so the words stay word-by-word and only the clock changes. Needs the lyrics view open in Music.")
                 }
                 if let hint = model.appleLyricsHint {
                     LabeledContent {
@@ -435,6 +435,12 @@ struct SyncSettingsView: View {
                     } label: {
                         Text("Music's lyrics can't be read yet")
                         Text(hint)
+                    }
+                }
+                if case .reading = model.appleLyrics.status, let matched = model.matchedLines {
+                    LabeledContent("Matched") {
+                        Text("^[\(matched) line](inflect: true) so far")
+                            .foregroundStyle(.secondary)
                     }
                 }
                 Toggle(isOn: $settings.autoSync) {

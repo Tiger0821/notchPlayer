@@ -1,6 +1,21 @@
 import Foundation
 import LyricsCore
 
+/// Everywhere lyrics can come from, in the one list the user ranks. Apple Music isn't a `LyricsSourceKind`
+/// because it's read out of Music's own window rather than fetched.
+enum LyricsSource: String, CaseIterable, Identifiable {
+    case appleMusic
+    case localFiles
+    case netease
+    case lrclib
+
+    var id: String { rawValue }
+
+    var kind: LyricsSourceKind? { LyricsSourceKind(rawValue: rawValue) }
+
+    var title: String { kind?.title ?? MusicLyricsReader.sourceName }
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     private let defaults = UserDefaults.standard
@@ -12,7 +27,7 @@ final class AppSettings: ObservableObject {
     @Published var showOnExternalDisplays: Bool { didSet { defaults.set(showOnExternalDisplays, forKey: "showOnExternalDisplays") } }
     @Published var convertToTraditional: Bool { didSet { defaults.set(convertToTraditional, forKey: "convertToTraditional") } }
     /// Lyrics sources in the user's own order of preference; the first one with lyrics for the track wins.
-    @Published var sourceOrder: [LyricsSourceKind] {
+    @Published var sourceOrder: [LyricsSource] {
         didSet { defaults.set(sourceOrder.map(\.rawValue), forKey: "sourceOrder") }
     }
     /// Sources the user has switched off; they stay in the list but are skipped.
@@ -21,19 +36,19 @@ final class AppSettings: ObservableObject {
     }
     /// Take word-by-word lyrics from anywhere in the list before settling for line-timed ones.
     @Published var preferWordTiming: Bool { didSet { defaults.set(preferWordTiming, forKey: "preferWordTiming") } }
-    /// Listen to Music's audio to line lyrics up automatically. Can't be on together with `appleMusicLyrics`.
+    /// Listen to Music's audio to line lyrics up automatically. Can't be on together with `appleMusicTiming`.
     @Published var autoSync: Bool {
         didSet {
             defaults.set(autoSync, forKey: "autoSync")
-            if autoSync, appleMusicLyrics { appleMusicLyrics = false }
+            if autoSync, appleMusicTiming { appleMusicTiming = false }
         }
     }
-    /// Take the lyrics, and their timing, from Music's own lyrics pane when it is readable. Can't be on together
-    /// with `autoSync`.
-    @Published var appleMusicLyrics: Bool {
+    /// Put the lyrics you have onto Music's own line changes, which is the timing Apple ships with the song.
+    /// Can't be on together with `autoSync`.
+    @Published var appleMusicTiming: Bool {
         didSet {
-            defaults.set(appleMusicLyrics, forKey: "appleMusicLyrics")
-            if appleMusicLyrics, autoSync { autoSync = false }
+            defaults.set(appleMusicTiming, forKey: "appleMusicTiming")
+            if appleMusicTiming, autoSync { autoSync = false }
         }
     }
     /// Little pixel pictures beside words like "love" or "car" as they're sung.
@@ -50,7 +65,7 @@ final class AppSettings: ObservableObject {
             "convertToTraditional": true,
             "preferWordTiming": true,
             "autoSync": true,
-            "appleMusicLyrics": false,
+            "appleMusicTiming": false,
             "pixelArtEnabled": true,
             "pixelArtWhite": false,
         ])
@@ -63,35 +78,48 @@ final class AppSettings: ObservableObject {
         showOnExternalDisplays = defaults.bool(forKey: "showOnExternalDisplays")
         convertToTraditional = defaults.bool(forKey: "convertToTraditional")
         preferWordTiming = defaults.bool(forKey: "preferWordTiming")
-        let stored = (defaults.array(forKey: "sourceOrder") as? [String] ?? []).compactMap(LyricsSourceKind.init)
+        let stored = (defaults.array(forKey: "sourceOrder") as? [String] ?? []).compactMap(LyricsSource.init)
         // Anything new in a later version joins the end rather than going missing.
-        sourceOrder = stored + LyricsSourceKind.allCases.filter { !stored.contains($0) }
+        sourceOrder = stored + LyricsSource.allCases.filter { !stored.contains($0) }
         var off = Set(defaults.array(forKey: "disabledSources") as? [String] ?? [])
-        // Carry over the old NetEase switch the first time.
-        if defaults.object(forKey: "disabledSources") == nil, defaults.object(forKey: "useNetEase") as? Bool == false {
-            off.insert(LyricsSourceKind.netease.rawValue)
+        if defaults.object(forKey: "disabledSources") == nil {
+            // Reading Music's window needs Accessibility, and nothing should put that prompt up on first
+            // launch, so Apple Music is there to switch on rather than already on.
+            off.insert(LyricsSource.appleMusic.rawValue)
+            // Carry over the old NetEase switch the first time.
+            if defaults.object(forKey: "useNetEase") as? Bool == false {
+                off.insert(LyricsSource.netease.rawValue)
+            }
         }
         disabledSources = off
-        if defaults.bool(forKey: "autoSync"), defaults.bool(forKey: "appleMusicLyrics") {
-            // Saved while both could be on. Music's own lyrics is off unless someone turned it on, so it wins.
+        // "appleMusicLyrics" used to mean the same switch, back when it replaced the lyrics rather than
+        // retiming them.
+        if defaults.object(forKey: "appleMusicTiming") == nil, let old = defaults.object(forKey: "appleMusicLyrics") as? Bool {
+            defaults.set(old, forKey: "appleMusicTiming")
+        }
+        if defaults.bool(forKey: "autoSync"), defaults.bool(forKey: "appleMusicTiming") {
+            // Saved while both could be on. Music's timing is off unless someone turned it on, so it wins.
             defaults.set(false, forKey: "autoSync")
         }
         autoSync = defaults.bool(forKey: "autoSync")
-        appleMusicLyrics = defaults.bool(forKey: "appleMusicLyrics")
+        appleMusicTiming = defaults.bool(forKey: "appleMusicTiming")
         pixelArtEnabled = defaults.bool(forKey: "pixelArtEnabled")
         pixelArtWhite = defaults.bool(forKey: "pixelArtWhite")
     }
 
     /// The enabled sources, in order.
-    var activeSources: [LyricsSourceKind] {
+    var activeSources: [LyricsSource] {
         sourceOrder.filter { !disabledSources.contains($0.rawValue) }
     }
 
-    func isEnabled(_ source: LyricsSourceKind) -> Bool {
+    /// The sources that are actually fetched, in order. Apple Music isn't one: it's read from Music's window.
+    var fetchOrder: [LyricsSourceKind] { activeSources.compactMap(\.kind) }
+
+    func isEnabled(_ source: LyricsSource) -> Bool {
         !disabledSources.contains(source.rawValue)
     }
 
-    func setEnabled(_ enabled: Bool, for source: LyricsSourceKind) {
+    func setEnabled(_ enabled: Bool, for source: LyricsSource) {
         if enabled { disabledSources.remove(source.rawValue) } else { disabledSources.insert(source.rawValue) }
     }
 
