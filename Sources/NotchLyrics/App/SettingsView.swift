@@ -447,20 +447,16 @@ struct SyncSettingsView: View {
                     Text(timingExplanation)
                 }
                 .pickerStyle(.segmented)
-                if settings.timingSource == .musicLyrics, let hint = model.appleLyricsHint {
+                if settings.timingSource == .musicLyrics {
+                    let state = model.musicTimingState
                     LabeledContent {
-                        if case .needsPermission = model.appleLyrics.status {
+                        if state == .needsPermission {
                             Button("Open Privacy Settings…") { openAccessibilitySettings() }
                         }
                     } label: {
-                        Text("Music's lyrics can't be read yet")
-                        Text(hint)
-                    }
-                }
-                if case .reading = model.appleLyrics.status, let matched = model.matchedLines {
-                    LabeledContent("Matched") {
-                        Text("^[\(matched) line](inflect: true) so far")
-                            .foregroundStyle(.secondary)
+                        Label(state.title, systemImage: musicTimingSymbol(state))
+                            .foregroundStyle(musicTimingColor(state))
+                        Text(state.detail)
                     }
                 }
             } header: {
@@ -517,6 +513,23 @@ struct SyncSettingsView: View {
             "Music marks the line it is singing, which is Apple's own timing for the song. Each line it reaches is matched to the same line in the lyrics you have, so the words stay word-by-word and only the clock changes. Needs the lyrics view open in Music."
         case .listening:
             "Listens to Music on this Mac and matches the sung words to the lyrics. Audio is never recorded or sent anywhere."
+        }
+    }
+
+    private func musicTimingSymbol(_ state: NowPlayingModel.MusicTimingState) -> String {
+        switch state {
+        case .timing: "checkmark.circle.fill"
+        case .noMatch: "magnifyingglass"
+        case .needsPermission, .needsLyricsPane: "exclamationmark.triangle.fill"
+        case .off: "circle.dashed"
+        }
+    }
+
+    private func musicTimingColor(_ state: NowPlayingModel.MusicTimingState) -> Color {
+        switch state {
+        case .timing: .green
+        case .needsPermission, .needsLyricsPane: .orange
+        case .noMatch, .off: .secondary
         }
     }
 
