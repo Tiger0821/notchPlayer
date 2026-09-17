@@ -451,7 +451,12 @@ struct SyncSettingsView: View {
                     let state = model.musicTimingState
                     LabeledContent {
                         if state == .needsPermission {
-                            Button("Open Privacy Settings…") { openAccessibilitySettings() }
+                            Button("Allow Access…") {
+                                // The prompt is the short way in when macOS has nothing on file; the pane is
+                                // the only way in when it has, and there is no telling which from here.
+                                MusicLyricsReader.requestPermission(force: true)
+                                openAccessibilitySettings()
+                            }
                         }
                     } label: {
                         Label(state.title, systemImage: musicTimingSymbol(state))

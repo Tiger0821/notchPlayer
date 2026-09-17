@@ -75,8 +75,12 @@ final class MusicLyricsReader: ObservableObject {
     private static var asked = false
 
     /// Asks for the permission this needs, showing macOS's prompt the first time.
-    static func requestPermission() {
+    ///
+    /// - Parameter force: ask even if this launch has asked already. Pressing a button that says so is a
+    ///   request in itself, and the once-a-launch limit is there for the times nobody asked.
+    static func requestPermission(force: Bool = false) {
         guard !AXIsProcessTrusted() else { return }
+        if force { asked = false }
         // macOS puts its prompt up again on every call while the permission is missing, so switching this on
         // and off a few times means the same dialog a few times. Ask once a launch; after that the Sync tab
         // says what is missing and offers the button that opens the right pane.
