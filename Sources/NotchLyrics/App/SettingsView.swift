@@ -271,32 +271,7 @@ struct LyricsSettingsView: View {
     var body: some View {
         Form {
             Section {
-                // Drag to rank; the first source with lyrics for the song wins, and switching one off skips it.
-                List {
-                    ForEach(settings.sourceOrder) { source in
-                        HStack(spacing: 10) {
-                            Toggle("", isOn: Binding(
-                                get: { settings.isEnabled(source) },
-                                set: { settings.setEnabled($0, for: source) }))
-                                .labelsHidden()
-                            Text(source.title)
-                            Spacer(minLength: 8)
-                            Image(systemName: "line.3.horizontal")
-                                .foregroundStyle(.tertiary)
-                                .accessibilityHidden(true)
-                        }
-                        .opacity(settings.isEnabled(source) ? 1 : 0.5)
-                        .animation(.easeInOut(duration: 0.15), value: settings.disabledSources)
-                    }
-                    .onMove { indices, destination in
-                        withAnimation(.snappy(duration: 0.25)) {
-                            settings.moveSources(from: indices, to: destination)
-                        }
-                    }
-                }
-                .frame(height: CGFloat(settings.sourceOrder.count) * 28 + 16)
-                .animation(.snappy(duration: 0.25), value: settings.sourceOrder)
-                .alternatingRowBackgrounds()
+                SourceRanking(settings: settings)
 
                 Toggle("Prefer word-by-word timing", isOn: $settings.preferWordTiming)
             } header: {
@@ -344,6 +319,95 @@ struct LyricsSettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// The sources, as rows you drag to rank them. `List`'s own reordering drags a bare text label and only moves
+/// anything once you let go, which reads as nothing happening; this lifts the whole row under the pointer and
+/// opens the gap where it would land as you pass over it.
+private struct SourceRanking: View {
+    @ObservedObject var settings: AppSettings
+    @State private var dragging: LyricsSourceKind?
+    @State private var hovered: LyricsSourceKind?
+
+    private static let rowHeight: CGFloat = 30
+    private static let shift = Animation.snappy(duration: 0.22)
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(settings.sourceOrder.enumerated()), id: \.element) { index, source in
+                SourceRankingRow(settings: settings, source: source, hovered: hovered == source)
+                    .frame(height: Self.rowHeight)
+                    .background(index.isMultiple(of: 2) ? Color.clear : Color.primary.opacity(0.04))
+                    // The row being carried stays as a faint ghost rather than vanishing, so the list still
+                    // reads as four rows, and a drag let go outside the window leaves nothing missing.
+                    .opacity(dragging == source ? 0.15 : 1)
+                    .onHover { inside in
+                        hovered = inside ? source : (hovered == source ? nil : hovered)
+                    }
+                    .pointerStyle(dragging == nil ? .grabIdle : .grabActive)
+                    .onDrag {
+                        dragging = source
+                        return NSItemProvider(object: source.rawValue as NSString)
+                    } preview: {
+                        SourceRankingRow(settings: settings, source: source, hovered: true)
+                            .frame(width: 320, height: Self.rowHeight)
+                            .background(.regularMaterial, in: .rect(cornerRadius: 6))
+                    }
+                    .dropDestination(for: String.self) { _, _ in
+                        dragging = nil
+                        return true
+                    } isTargeted: { over in
+                        guard over, let dragging, dragging != source else { return }
+                        move(dragging, onto: source)
+                    }
+            }
+        }
+        .clipShape(.rect(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6).strokeBorder(.separator)
+        }
+        .animation(Self.shift, value: settings.sourceOrder)
+        // A drag let go between rows, or outside the list, still ends it.
+        .dropDestination(for: String.self) { _, _ in
+            dragging = nil
+            return true
+        }
+    }
+
+    /// Slides the carried source into the row it is over, which is what opens the gap.
+    private func move(_ source: LyricsSourceKind, onto target: LyricsSourceKind) {
+        guard let from = settings.sourceOrder.firstIndex(of: source),
+              let to = settings.sourceOrder.firstIndex(of: target) else { return }
+        withAnimation(Self.shift) {
+            settings.moveSources(from: IndexSet(integer: from), to: to > from ? to + 1 : to)
+        }
+    }
+}
+
+private struct SourceRankingRow: View {
+    @ObservedObject var settings: AppSettings
+    let source: LyricsSourceKind
+    var hovered: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Toggle("", isOn: Binding(
+                get: { settings.isEnabled(source) },
+                set: { settings.setEnabled($0, for: source) }))
+                .labelsHidden()
+                // A switch would be the size of the row; this is a list of things to tick, not settings.
+                .toggleStyle(.checkbox)
+            Text(source.title)
+            Spacer(minLength: 8)
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(hovered ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 10)
+        .opacity(settings.isEnabled(source) ? 1 : 0.5)
+        .animation(.easeInOut(duration: 0.15), value: settings.disabledSources)
+        .contentShape(.rect)
     }
 }
 
