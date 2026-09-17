@@ -69,7 +69,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         addItem(to: menu, "Show Lyrics in Notch", #selector(toggleEnabled)).state = settings.enabled ? .on : .off
         addItem(to: menu, "Reload Lyrics", #selector(reloadLyrics))
-        if music.track != nil {
+        if music.track != nil, settings.autoSync {
             addItem(to: menu, "Re-sync This Song", #selector(resync))
         }
         menu.addItem(.separator())

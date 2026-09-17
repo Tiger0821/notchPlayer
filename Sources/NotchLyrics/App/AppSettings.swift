@@ -11,10 +11,21 @@ final class AppSettings: ObservableObject {
     @Published var showOnExternalDisplays: Bool { didSet { defaults.set(showOnExternalDisplays, forKey: "showOnExternalDisplays") } }
     @Published var convertToTraditional: Bool { didSet { defaults.set(convertToTraditional, forKey: "convertToTraditional") } }
     @Published var useNetEase: Bool { didSet { defaults.set(useNetEase, forKey: "useNetEase") } }
-    /// Listen to Music's audio to line lyrics up automatically.
-    @Published var autoSync: Bool { didSet { defaults.set(autoSync, forKey: "autoSync") } }
-    /// Take the lyrics, and their timing, from Music's own lyrics pane when it is readable.
-    @Published var appleMusicLyrics: Bool { didSet { defaults.set(appleMusicLyrics, forKey: "appleMusicLyrics") } }
+    /// Listen to Music's audio to line lyrics up automatically. Can't be on together with `appleMusicLyrics`.
+    @Published var autoSync: Bool {
+        didSet {
+            defaults.set(autoSync, forKey: "autoSync")
+            if autoSync, appleMusicLyrics { appleMusicLyrics = false }
+        }
+    }
+    /// Take the lyrics, and their timing, from Music's own lyrics pane when it is readable. Can't be on together
+    /// with `autoSync`.
+    @Published var appleMusicLyrics: Bool {
+        didSet {
+            defaults.set(appleMusicLyrics, forKey: "appleMusicLyrics")
+            if appleMusicLyrics, autoSync { autoSync = false }
+        }
+    }
     /// Little pixel pictures beside words like "love" or "car" as they're sung.
     @Published var pixelArtEnabled: Bool { didSet { defaults.set(pixelArtEnabled, forKey: "pixelArtEnabled") } }
     /// Draw the pixel art in white, like the lyrics, instead of in color.
@@ -42,6 +53,10 @@ final class AppSettings: ObservableObject {
         showOnExternalDisplays = defaults.bool(forKey: "showOnExternalDisplays")
         convertToTraditional = defaults.bool(forKey: "convertToTraditional")
         useNetEase = defaults.bool(forKey: "useNetEase")
+        if defaults.bool(forKey: "autoSync"), defaults.bool(forKey: "appleMusicLyrics") {
+            // Saved while both could be on. Music's own lyrics is off unless someone turned it on, so it wins.
+            defaults.set(false, forKey: "autoSync")
+        }
         autoSync = defaults.bool(forKey: "autoSync")
         appleMusicLyrics = defaults.bool(forKey: "appleMusicLyrics")
         pixelArtEnabled = defaults.bool(forKey: "pixelArtEnabled")

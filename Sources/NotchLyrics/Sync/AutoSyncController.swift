@@ -247,7 +247,9 @@ final class AutoSyncController: ObservableObject {
     }
 
     private func updateCorrection() {
-        let value = (songOffset ?? learnedBias) - latency.latency
+        // What listening measured, or learned from earlier songs, only applies while listening is the chosen way to
+        // line lyrics up; otherwise only the output device's delay is compensated.
+        let value = (songOffset ?? (settings.autoSync ? learnedBias : 0)) - latency.latency
         if abs(value - correction) > 0.001 { correction = value }
     }
 

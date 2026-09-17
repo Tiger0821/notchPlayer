@@ -56,10 +56,14 @@ The status for the current song is shown in the ❝ menu and in Settings › Syn
 
 Turn on **Settings › Sync → Use Music's own lyrics** to take the lyrics, and their timing, straight from
 Music's lyrics pane instead of fetching them. Apple's line changes *are* the timing, so nothing has to be
-lined up afterwards — auto-sync is skipped for these songs, and only the output device's delay is
-compensated. It needs Accessibility permission and the lyrics view open in Music; Apple exposes no per-word
-timing, so word timing inside a line is estimated. Songs Music has no lyrics for fall back to the sources
-below.
+lined up afterwards, and only the output device's delay is compensated. It needs Accessibility permission
+and the lyrics view open in Music; Apple exposes no per-word timing, so word timing inside a line is
+estimated. Songs Music has no lyrics for fall back to the sources below.
+
+It's an alternative to automatic sync, not an addition: they're two different ways to line lyrics up, so
+only one can be on, and turning one on turns the other off. While Music's own lyrics are on, nothing is
+listened to and nothing auto-sync measured or learned is applied: fetched lyrics play with their own timing,
+with only the output device's delay compensated. The same goes when both are off.
 
 ### Fetched lyrics
 
@@ -123,7 +127,7 @@ Open from the ❝ menu bar item. Settings has five tabs:
 - **General:** live preview, show/hide, drawn notch on other displays, text size, width beside the notch
 - **Lyrics:** NetEase word timing, Traditional Chinese conversion, local lyrics folder, clear cache
 - **Pixel Art:** on/off, Color or White style, gallery, pixel editor, import and export
-- **Sync:** where timing comes from (Music's own lyrics, automatic sync), current song status, output device delay, re-sync
+- **Sync:** where timing comes from (Music's own lyrics or automatic sync, one at a time), current song status, output device delay, re-sync
 - **About:** version and project link
 
 ## Notes & limitations

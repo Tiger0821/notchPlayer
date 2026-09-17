@@ -326,10 +326,10 @@ struct SyncSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Where timing comes from") {
+            Section {
                 Toggle(isOn: $settings.appleMusicLyrics) {
                     Text("Use Music's own lyrics")
-                    Text("Takes the lyrics, and their timing, straight from Music's lyrics pane, so they are already in time. Needs the lyrics view open in Music. Songs it has no lyrics for fall back to the sources below.")
+                    Text("Takes the lyrics, and their timing, straight from Music's lyrics pane, so they're already in time. Needs the lyrics view open in Music. Songs Music has no lyrics for use fetched lyrics with their own timing.")
                 }
                 if let hint = model.appleLyricsHint {
                     LabeledContent {
@@ -343,8 +343,14 @@ struct SyncSettingsView: View {
                 }
                 Toggle(isOn: $settings.autoSync) {
                     Text("Sync lyrics automatically")
-                    Text("For lyrics that come from anywhere else: listens to Music on this Mac and matches the sung words to the lyrics. Audio is never recorded or sent anywhere.")
+                    Text("Listens to Music on this Mac and matches the sung words to fetched lyrics. Audio is never recorded or sent anywhere.")
                 }
+            } header: {
+                Text("Where timing comes from")
+            } footer: {
+                Text("These are two different ways to line lyrics up, so only one can be on. Turning one on turns the other off.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Status") {
