@@ -16,6 +16,24 @@ enum LyricsSource: String, CaseIterable, Identifiable {
     var title: String { kind?.title ?? MusicLyricsReader.sourceName }
 }
 
+/// Where a line's timing comes from. The fetched lyrics carry their own, which is right for a source that
+/// times each word and wrong for most of the rest; the other two replace it, and can't both be on.
+enum TimingSource: String, CaseIterable, Identifiable {
+    case asFetched
+    case musicLyrics
+    case listening
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .asFetched: "As fetched"
+        case .musicLyrics: "Music's own lyrics"
+        case .listening: "Listening"
+        }
+    }
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     private let defaults = UserDefaults.standard
@@ -125,6 +143,26 @@ final class AppSettings: ObservableObject {
 
     func moveSources(from offsets: IndexSet, to destination: Int) {
         sourceOrder.move(fromOffsets: offsets, toOffset: destination)
+    }
+
+    /// The two timing switches as the one choice they really are. They keep each other off already; this is
+    /// the same thing said once instead of twice.
+    var timingSource: TimingSource {
+        get {
+            if appleMusicTiming { return .musicLyrics }
+            if autoSync { return .listening }
+            return .asFetched
+        }
+        set {
+            switch newValue {
+            case .asFetched:
+                appleMusicTiming = false
+                autoSync = false
+            // Each of these turns the other off on its way in.
+            case .musicLyrics: appleMusicTiming = true
+            case .listening: autoSync = true
+            }
+        }
     }
 
     var lyricsFolder: URL {
