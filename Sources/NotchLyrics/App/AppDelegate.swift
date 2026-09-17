@@ -59,6 +59,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        // A second launch asks this copy for its window rather than starting another one.
+        DistributedNotificationCenter.default()
+            .publisher(for: Notification.Name("com.tigercho.NotchLyrics.showSettings"))
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.settingsWindow.show() }
+            .store(in: &cancellables)
+
         music.start()
         sync.start()
     }
