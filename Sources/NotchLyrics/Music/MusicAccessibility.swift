@@ -17,11 +17,17 @@ enum MusicAccessibility {
             }
             for child in children(element) { search(child, depth: depth + 1) }
         }
-        for attribute in [kAXWindowsAttribute, kAXChildrenAttribute] {
+        // Music answers `AXWindows` with nothing at all — its window is only reachable as the main or the
+        // focused one, and those come back as a single element rather than a list. Asking for the windows
+        // alone, as this used to, never finds the lyrics pane on any Mac where that is true.
+        for attribute in [kAXMainWindowAttribute, kAXFocusedWindowAttribute, kAXWindowsAttribute, kAXChildrenAttribute] {
             var raw: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(app, attribute as CFString, &raw) == .success,
-                  let elements = raw as? [AXUIElement] else { continue }
-            for element in elements { search(element, depth: 0) }
+            guard AXUIElementCopyAttributeValue(app, attribute as CFString, &raw) == .success, let raw else { continue }
+            if let elements = raw as? [AXUIElement] {
+                for element in elements { search(element, depth: 0) }
+            } else if CFGetTypeID(raw) == AXUIElementGetTypeID() {
+                search(raw as! AXUIElement, depth: 0)
+            }
             if found != nil { break }
         }
         return found
