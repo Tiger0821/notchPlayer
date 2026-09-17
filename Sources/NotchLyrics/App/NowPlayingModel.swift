@@ -42,13 +42,17 @@ final class NowPlayingModel: ObservableObject {
             .store(in: &cancellables)
 
         // Music's pane is read rather than fetched, so the reader runs continuously while anything wants it.
+        // Only a change asks for the permission: `dropFirst` leaves out the value each of these publishes on
+        // subscribe, which is every launch.
         Publishers.Merge(
-            settings.$disabledSources.removeDuplicates().map { _ in () },
-            settings.$appleMusicTiming.removeDuplicates().map { _ in () }
+            settings.$disabledSources.removeDuplicates().dropFirst().map { _ in () },
+            settings.$appleMusicTiming.removeDuplicates().dropFirst().map { _ in () }
         )
         .receive(on: RunLoop.main)
-        .sink { [weak self] in self?.updateReader() }
+        .sink { [weak self] in self?.updateReader(askForPermission: true) }
         .store(in: &cancellables)
+
+        updateReader(askForPermission: false)
 
         // Music reaches a line, and what is on screen moves onto Apple's clock for it.
         Publishers.Merge(
@@ -106,7 +110,8 @@ final class NowPlayingModel: ObservableObject {
         var detail: String {
             switch self {
             case .off: "The lyrics are shown with the timing they came with."
-            case .needsPermission: "Allow NotchLyrics in Privacy & Security › Accessibility."
+            case .needsPermission:
+                "Allow NotchLyrics in Privacy & Security › Accessibility. If it is switched on there already, remove it with − and add this copy again: a tick belongs to the copy that asked for it, and an app signed differently is a different app to macOS."
             case .needsLyricsPane: "Open the lyrics view in Music, and play the song — a line's timing is read as Music reaches it."
             case .noMatch(let lines):
                 "Music is showing ^[\(lines) line](inflect: true), but none of them is a line in the lyrics on screen yet. Timing moves once two of them match, so play a little further in."
@@ -195,10 +200,13 @@ final class NowPlayingModel: ObservableObject {
         }
     }
 
-    private func updateReader() {
+    /// - Parameter askForPermission: whether to put macOS's Accessibility prompt up if it is missing. Only a
+    ///   deliberate change does — switching Music's timing on, or Apple Music into the list. Launching doesn't:
+    ///   a permission someone has decided not to give shouldn't be asked for again every time the app starts,
+    ///   and the Sync tab says what is missing for as long as it is.
+    private func updateReader(askForPermission: Bool) {
         if settings.appleMusicTiming || settings.isEnabled(.appleMusic) {
-            // Asks whenever the permission is actually missing, and only once a launch.
-            MusicLyricsReader.requestPermission()
+            if askForPermission { MusicLyricsReader.requestPermission() }
             appleLyrics.start()
         } else {
             appleLyrics.stop()
