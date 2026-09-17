@@ -236,34 +236,61 @@ final class NotchWindowController {
     private func refresh() {
         hideWorkItem?.cancel()
         updatePointerPolling()
-        let visible = wantsVisible && !hoverHidden
-        Log.notch.info("visible=\(visible) (playing=\(self.wantsVisible) hoverHidden=\(self.hoverHidden))")
+        Log.notch.info("playing=\(self.wantsVisible) hoverHidden=\(self.hoverHidden)")
 
-        if visible {
+        if wantsVisible {
             if !isShown {
                 isShown = true
                 panel.orderFrontRegardless()
             }
-            animateAlpha(to: 1, duration: 0.1)
+            // Under the pointer the strip goes faint and soft rather than away. The menu bar behind it has to
+            // be readable and clickable, which it now is — but a line disappearing the moment you reach for
+            // the menu bar reads as the app crashing, and you lose your place in the song for nothing. The
+            // panel never takes clicks, so leaving it there costs nothing.
+            setSoftened(hoverHidden)
+            animateAlpha(to: hoverHidden ? Self.softenedAlpha : 1, duration: 0.18)
             return
         }
         guard isShown else { return }
+        setSoftened(false)
 
         let hide = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            self.animateAlpha(to: 0, duration: self.hoverHidden ? 0.1 : 0.3) { [weak self] in
-                guard let self, !(self.wantsVisible && !self.hoverHidden) else { return }
+            self.animateAlpha(to: 0, duration: 0.3) { [weak self] in
+                guard let self, !self.wantsVisible else { return }
                 self.isShown = false
                 self.panel.orderOut(nil)
             }
         }
         hideWorkItem = hide
-        if hoverHidden {
-            hide.perform()
-        } else {
-            // Short grace period so track changes and brief pauses don't flicker the menu bar.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: hide)
+        // Short grace period so track changes and brief pauses don't flicker the menu bar.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: hide)
+    }
+
+    /// How far out of the way the strip gets while the pointer is over it.
+    private static let softenedAlpha: CGFloat = 0.22
+    private static let softenedBlur: CGFloat = 3
+    private static let blurName = "softenOnHover"
+
+    /// Blurs the strip, so what is left of it reads as out of the way rather than as the lyrics being wrong.
+    private func setSoftened(_ softened: Bool) {
+        guard let view = panel.contentView else { return }
+        view.wantsLayer = true
+        guard let layer = view.layer else { return }
+        if layer.filters == nil {
+            guard let blur = CIFilter(name: "CIGaussianBlur") else { return }
+            blur.setValue(0, forKey: "inputRadius")
+            blur.name = Self.blurName
+            layer.filters = [blur]
         }
+        let keyPath = "filters.\(Self.blurName).inputRadius"
+        let radius = softened ? Self.softenedBlur : 0
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.fromValue = layer.value(forKeyPath: keyPath) ?? 0
+        animation.toValue = radius
+        animation.duration = 0.18
+        layer.setValue(radius, forKeyPath: keyPath)
+        layer.add(animation, forKey: "soften")
     }
 
     private func animateAlpha(to alpha: CGFloat, duration: TimeInterval, completion: (@MainActor () -> Void)? = nil) {
