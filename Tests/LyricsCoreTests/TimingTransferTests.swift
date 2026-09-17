@@ -103,3 +103,70 @@ private func lyrics(_ lines: [(TimeInterval, String)], timing: LyricsTiming = .w
     let starts = retimed.lyrics.lines.map { $0.start }
     #expect(starts == starts.sorted())
 }
+
+// MARK: - Music's line breaks
+
+/// Word-timed lyrics whose lines are broken differently from Music's.
+private func worded(_ lines: [(TimeInterval, String)]) -> Lyrics {
+    let built = lines.enumerated().map { index, line -> LyricLine in
+        let end = index + 1 < lines.count ? lines[index + 1].0 : line.0 + 2
+        let parts = line.1.split(separator: " ").map(String.init)
+        let step = (end - line.0) / Double(max(parts.count, 1))
+        let words = parts.enumerated().map { i, word in
+            LyricWord(text: i == parts.count - 1 ? word : word + " ",
+                      start: line.0 + Double(i) * step, end: line.0 + Double(i + 1) * step)
+        }
+        return LyricLine(start: line.0, end: end, words: words)
+    }
+    return Lyrics(lines: built, timing: .word, source: "test")
+}
+
+@Test func putsTheWordsOntoMusicsOwnLineBreaks() throws {
+    // The fetched lyrics run it as two long lines; Music breaks the same words into three.
+    let fetched = worded([(0, "you and I are just like a couple of tots"), (4, "running along the meadow")])
+    let pane = ["You and I", "are just like a couple of tots", "Running along the meadow"]
+    let anchors = [LineAnchor(text: "You and I", start: 10), LineAnchor(text: "Running along the meadow", start: 16)]
+
+    let out = try #require(TimingTransfer.resegment(fetched, onto: pane, anchors: anchors))
+    #expect(out.lyrics.lines.count == 3)
+    #expect(out.lyrics.lines.map { $0.text.trimmingCharacters(in: .whitespaces) }
+            == ["you and I", "are just like a couple of tots", "running along the meadow"])
+    // Music said when its own lines start, and they do.
+    #expect(out.lyrics.lines[0].start == 10)
+    #expect(out.lyrics.lines[2].start == 16)
+    // The words kept their own timing, in order.
+    #expect(out.lyrics.lines[1].words.count == 7)
+    #expect(out.lyrics.lines[1].words.map { $0.start } == out.lyrics.lines[1].words.map { $0.start }.sorted())
+}
+
+@Test func keepsALineMusicHasThatTheLyricsDont() throws {
+    let fetched = worded([(0, "paper boats"), (4, "lanterns drifting")])
+    let pane = ["Paper boats", "Instrumental Break", "Lanterns drifting"]
+    let anchors = [LineAnchor(text: "Paper boats", start: 1), LineAnchor(text: "Lanterns drifting", start: 9)]
+
+    let out = try #require(TimingTransfer.resegment(fetched, onto: pane, anchors: anchors))
+    #expect(out.lyrics.lines.count == 3)
+    #expect(out.lyrics.lines[1].text.contains("Instrumental"))
+    // It sits between its neighbours rather than at zero.
+    #expect(out.lyrics.lines[1].start >= out.lyrics.lines[0].start)
+    #expect(out.lyrics.lines[1].start <= out.lyrics.lines[2].start)
+    let starts = out.lyrics.lines.map { $0.start }
+    #expect(starts == starts.sorted())
+}
+
+@Test func matchesARepeatedPaneLineToTheNextTimeItAppears() throws {
+    let fetched = worded([(0, "chorus line"), (2, "a verse"), (4, "chorus line")])
+    let pane = ["Chorus line", "A verse", "Chorus line"]
+    let anchors = [LineAnchor(text: "Chorus line", start: 0), LineAnchor(text: "A verse", start: 3)]
+
+    let out = try #require(TimingTransfer.resegment(fetched, onto: pane, anchors: anchors))
+    #expect(out.lyrics.lines.count == 3)
+    // The third pane line took the second occurrence's words, not the first's.
+    #expect(out.lyrics.lines[2].start > out.lyrics.lines[1].start)
+}
+
+@Test func leavesThingsAloneWhenThePaneIsAnotherSong() {
+    let fetched = worded([(0, "paper boats"), (4, "lanterns drifting")])
+    #expect(TimingTransfer.resegment(fetched, onto: ["something else", "and another"], anchors: []) == nil)
+    #expect(TimingTransfer.resegment(fetched, onto: [], anchors: []) == nil)
+}

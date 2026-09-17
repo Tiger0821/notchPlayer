@@ -35,6 +35,86 @@ public enum TimingTransfer {
     /// of it would be worse than leaving it alone.
     public static let minimumMatches = 2
 
+    /// Rebuilds the lyrics on Music's lines: Apple decides where a line starts and ends, the fetched lyrics
+    /// supply the words inside it and their per-word timing.
+    ///
+    /// Line for line, the two sources rarely agree — one puts "you and I are just like a couple of tots" on
+    /// one line where the other breaks it in two, and a credit line exists on one side only. Matching whole
+    /// lines against each other then finds almost nothing. Matching runs over the words instead, as one
+    /// stream with the punctuation and the capitals taken out, so where Apple's line falls inside the fetched
+    /// words is a plain search, and every one of its lines lands whatever either side did with the breaks.
+    ///
+    /// What you see is then Apple's: its line is what the strip shows, and its next line is what comes next.
+    public static func resegment(_ lyrics: Lyrics, onto paneLines: [String], anchors: [LineAnchor]) -> RetimedLyrics? {
+        let words = lyrics.lines.flatMap(\.words)
+        guard !words.isEmpty, !paneLines.isEmpty else { return nil }
+
+        // One normalised string of the whole song, and where each word sits in it.
+        var stream = ""
+        var spans: [Range<Int>] = []
+        for word in words {
+            let key = TextNormalize.key(word.text)
+            spans.append(stream.count..<(stream.count + key.count))
+            stream += key
+        }
+        let characters = Array(stream)
+
+        var built: [LyricLine] = []
+        var searchFrom = 0
+        var matched = 0
+        for text in paneLines {
+            let key = Array(TextNormalize.key(text))
+            guard !key.isEmpty, let at = index(of: key, in: characters, from: searchFrom) else {
+                // An instrumental break, or a line the fetched lyrics simply don't have. It still belongs on
+                // screen — Apple showing it is the point — so keep it with its own estimated words.
+                built.append(LyricLine(start: 0, end: 0, words: WordTiming.estimate(text: text, start: 0, end: 0)))
+                continue
+            }
+            let range = at..<(at + key.count)
+            let inside = words.indices.filter { spans[$0].overlaps(range) || (spans[$0].isEmpty && range.contains(spans[$0].lowerBound)) }
+            searchFrom = range.upperBound
+            matched += 1
+            guard let first = inside.first, let last = inside.last else {
+                built.append(LyricLine(start: 0, end: 0, words: WordTiming.estimate(text: text, start: 0, end: 0)))
+                continue
+            }
+            built.append(LyricLine(start: words[first].start, end: words[last].end,
+                                   words: Array(words[first...last])))
+        }
+        guard matched >= minimumMatches else { return nil }
+
+        // Lines that matched nothing have no times of their own; put them between their neighbours so the
+        // order still holds, and let the anchors correct whichever of them Music reaches.
+        fill(&built)
+        let onAppleLines = Lyrics(lines: built, timing: lyrics.timing, source: lyrics.source)
+        guard let moved = apply(anchors, to: onAppleLines) else {
+            return RetimedLyrics(lyrics: onAppleLines, matchedLines: 0)
+        }
+        return moved
+    }
+
+    /// Gives a line that matched nothing a place in time: between the lines around it.
+    private static func fill(_ lines: inout [LyricLine]) {
+        for i in lines.indices where lines[i].end == 0 && lines[i].start == 0 {
+            let before = lines[..<i].last { $0.end > 0 }
+            let after = lines[(i + 1)...].first { $0.end > 0 }
+            let start = before?.end ?? max(0, (after?.start ?? 0) - 2)
+            let end = after?.start ?? start + 2
+            lines[i] = LyricLine(start: start, end: max(start, end),
+                                 words: WordTiming.estimate(text: lines[i].text, start: start, end: max(start, end)))
+        }
+    }
+
+    /// Where `needle` starts in `haystack` at or after `from`.
+    private static func index(of needle: [Character], in haystack: [Character], from: Int) -> Int? {
+        let last = haystack.count - needle.count
+        guard !needle.isEmpty, last >= 0, from <= last else { return nil }
+        for start in from...last where Array(haystack[start..<(start + needle.count)]) == needle {
+            return start
+        }
+        return nil
+    }
+
     public static func apply(_ anchors: [LineAnchor], to lyrics: Lyrics) -> RetimedLyrics? {
         let pairs = pairs(anchors, lyrics)
         guard pairs.count >= minimumMatches else { return nil }

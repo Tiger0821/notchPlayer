@@ -191,7 +191,12 @@ final class NowPlayingModel: ObservableObject {
             return
         }
         // The words are the fetched ones; only when each line starts comes from Music.
-        if settings.appleMusicTiming, let retimed = TimingTransfer.apply(appleLyrics.anchors, to: fetched) {
+        // Music's lines are what goes on screen — its breaks, so its next line is the next line — with the
+        // fetched words and their per-word timing inside them. Without the pane, only the timing moves.
+        let paneLines = appleLyrics.lyrics?.lines.map(\.text) ?? []
+        if settings.appleMusicTiming,
+           let retimed = TimingTransfer.resegment(fetched, onto: paneLines, anchors: appleLyrics.anchors)
+            ?? TimingTransfer.apply(appleLyrics.anchors, to: fetched) {
             lyricsState = .loaded(retimed.lyrics)
             matchedLines = retimed.matchedLines
         } else {
