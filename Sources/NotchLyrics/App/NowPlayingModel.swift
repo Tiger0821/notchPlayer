@@ -103,7 +103,7 @@ final class NowPlayingModel: ObservableObject {
             case .needsPermission: "Music's lyrics can't be read"
             case .needsLyricsPane: "Music's lyrics pane isn't open"
             case .noMatch: "No lines matched yet"
-            case .timing(let matched): "^[\(matched) line](inflect: true) matched"
+            case .timing(let matched): "\(matched) \(matched == 1 ? "line" : "lines") matched"
             }
         }
 
@@ -114,7 +114,7 @@ final class NowPlayingModel: ObservableObject {
                 "Allow NotchLyrics in Privacy & Security › Accessibility. If it is switched on there already, remove it with − and add this copy again: a tick belongs to the copy that asked for it, and an app signed differently is a different app to macOS."
             case .needsLyricsPane: "Open the lyrics view in Music, and play the song — a line's timing is read as Music reaches it."
             case .noMatch(let lines):
-                "Music is showing ^[\(lines) line](inflect: true), but none of them is a line in the lyrics on screen yet. Timing moves once two of them match, so play a little further in."
+                "Music is showing \(lines) \(lines == 1 ? "line" : "lines"), but none of them is a line in the lyrics on screen yet. Timing moves once two of them match, so play a little further in."
             case .timing: "The lyrics on screen are on Music's own timing."
             }
         }
@@ -222,7 +222,10 @@ final class NowPlayingModel: ObservableObject {
         if settings.preferWordTiming, other.timing == .word { return false }
         let ranks = settings.activeSources
         guard let apple = ranks.firstIndex(of: .appleMusic) else { return false }
-        guard let rival = ranks.firstIndex(where: { $0.title == other.source }) else { return true }
+        // By what the lyrics say they came from, not by the name the list shows: "NetEase" against
+        // "NetEase Cloud Music" never matched, so nothing was ever found to rank Apple Music against and it
+        // won every time, whatever the order said.
+        guard let rival = ranks.firstIndex(where: { $0.kind?.sourceName == other.source }) else { return true }
         return apple < rival
     }
 }
