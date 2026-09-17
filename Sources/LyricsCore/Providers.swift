@@ -31,6 +31,17 @@ public enum LyricsSourceKind: String, CaseIterable, Codable, Identifiable, Senda
         case .lrclib: "LRCLIB"
         }
     }
+
+    /// What this source stamps on the lyrics it returns, which is how a `Lyrics` says where it came from.
+    /// Not the title: these are short and fixed, and something that has to recognise a `Lyrics.source` can't
+    /// use a name meant for reading.
+    public var sourceName: String {
+        switch self {
+        case .localFiles: "Local file"
+        case .netease: "NetEase"
+        case .lrclib: "LRCLIB"
+        }
+    }
 }
 
 public enum LyricsFormat: String, Codable, Sendable {
@@ -87,7 +98,7 @@ struct LRCLibProvider {
                ("duration", String(Int(query.duration.rounded()))),
            ]), headers: Self.headers) as? [String: Any],
            let synced = exact["syncedLyrics"] as? String, !synced.isEmpty {
-            return RawLyrics(format: .lrc, text: synced, source: "LRCLIB")
+            return RawLyrics(format: .lrc, text: synced, source: LyricsSourceKind.lrclib.sourceName)
         }
 
         let searchURL = HTTP.url("https://lrclib.net/api/search", [
@@ -104,7 +115,7 @@ struct LRCLibProvider {
             return diff <= 3 ? (diff, synced) : nil
         }.min { $0.diff < $1.diff }
 
-        return best.map { RawLyrics(format: .lrc, text: $0.lyrics, source: "LRCLIB") }
+        return best.map { RawLyrics(format: .lrc, text: $0.lyrics, source: LyricsSourceKind.lrclib.sourceName) }
     }
 }
 
@@ -123,13 +134,13 @@ struct NetEaseProvider {
                 headers: Self.headers) as? [String: Any] else { continue }
 
             if let yrc = (json["yrc"] as? [String: Any])?["lyric"] as? String,
-               YRCParser.parse(yrc, source: "NetEase") != nil {
-                return RawLyrics(format: .yrc, text: yrc, source: "NetEase")
+               YRCParser.parse(yrc, source: LyricsSourceKind.netease.sourceName) != nil {
+                return RawLyrics(format: .yrc, text: yrc, source: LyricsSourceKind.netease.sourceName)
             }
             if lineFallback == nil,
                let lrc = (json["lrc"] as? [String: Any])?["lyric"] as? String,
-               LRCParser.parse(lrc, source: "NetEase") != nil {
-                lineFallback = RawLyrics(format: .lrc, text: lrc, source: "NetEase")
+               LRCParser.parse(lrc, source: LyricsSourceKind.netease.sourceName) != nil {
+                lineFallback = RawLyrics(format: .lrc, text: lrc, source: LyricsSourceKind.netease.sourceName)
             }
         }
         return lineFallback
@@ -192,6 +203,6 @@ struct LocalProvider {
         var encoding = String.Encoding.utf8
         guard let text = (try? String(contentsOf: url, encoding: .utf8))
                 ?? (try? String(contentsOf: url, usedEncoding: &encoding)) else { return nil }
-        return RawLyrics(format: .lrc, text: text, source: "Local file")
+        return RawLyrics(format: .lrc, text: text, source: LyricsSourceKind.localFiles.sourceName)
     }
 }

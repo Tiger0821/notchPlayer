@@ -33,8 +33,6 @@ final class MusicLyricsReader: ObservableObject {
     private var timer: Timer?
     private var scrollArea: AXUIElement?
     private var texts: [String] = []
-    private var starts: [TimeInterval?] = []
-    private var currentIndex: Int?
     private var lastSearch: CFTimeInterval = 0
 
     init(position: @escaping () -> TimeInterval) {
@@ -53,8 +51,6 @@ final class MusicLyricsReader: ObservableObject {
     /// right now nothing will replace it, so drop it and let the fetched lyrics have their turn.
     func trackChanged() {
         texts = []
-        starts = []
-        currentIndex = nil
         lyrics = nil
         anchors = []
     }
@@ -64,8 +60,6 @@ final class MusicLyricsReader: ObservableObject {
         timer = nil
         scrollArea = nil
         texts = []
-        starts = []
-        currentIndex = nil
         lyrics = nil
         anchors = []
         status = .off
@@ -104,41 +98,47 @@ final class MusicLyricsReader: ObservableObject {
             status = .needsLyricsPane
             return
         }
-
-        let incoming = lines.map(\.text)
-        if incoming != texts {
-            // A different song, or the pane reloaded: start its timing over.
-            texts = incoming
-            starts = Array(repeating: nil, count: incoming.count)
-            currentIndex = nil
-            anchors = []
-        }
+        texts = lines.map(\.text)
         status = .reading(lines: texts.count)
 
-        // Music marks a run of lines; the first is the one being sung.
-        guard let index = lines.firstIndex(where: \.selected) else { return }
-        if index != currentIndex {
-            currentIndex = index
-            // It became current somewhere in the last sample, so split the difference.
-            starts[index] = max(0, position() - Self.interval / 2)
-            rebuild(around: index)
-        }
+        // Music's pane is virtualised: lines are built and thrown away as it scrolls, so the list changes
+        // shape under us and an index from one sample means nothing in the next. Keying anything on the list
+        // itself — as this did, resetting whenever it differed — threw away every line's timing each time
+        // Music scrolled, which on a playing song is every few seconds. What is stable is the text of the
+        // line Music has marked, and text is what these times are matched by anyway.
+        guard let current = lines.first(where: \.selected)?.text, !current.isEmpty else { return }
+        guard current != anchors.last?.text else { return }
+        // It became current somewhere in the last sample, so split the difference.
+        anchors.append(LineAnchor(text: current, start: max(0, position() - Self.interval / 2)))
+        rebuild()
     }
 
-    /// Builds lyrics from the lines Apple has shown so far. Lines it hasn't reached yet get placeholder times
-    /// that keep them in order; each is corrected the moment Music actually moves onto it.
-    private func rebuild(around index: Int) {
-        guard let start = starts[index] else { return }
-        let estimated = WordTiming.estimatedDuration(for: texts[index])
+    /// Builds lyrics from the lines on screen, timed by the ones Music has been seen reaching. Lines it
+    /// hasn't reached yet get placeholder times that keep them in order; each is corrected the moment Music
+    /// actually moves onto it.
+    private func rebuild() {
+        // Anchors are in the order Music sang them, so walking both in order pairs a repeated line with the
+        // time it was sung rather than the first time it appears.
+        var known: [TimeInterval?] = Array(repeating: nil, count: texts.count)
+        var next = 0
+        for anchor in anchors {
+            guard let index = (next..<texts.count).first(where: { texts[$0] == anchor.text }) else { continue }
+            known[index] = anchor.start
+            next = index + 1
+        }
+        guard let lastKnown = known.lastIndex(where: { $0 != nil }), let start = known[lastKnown] else { return }
+
+        let estimated = WordTiming.estimatedDuration(for: texts[lastKnown])
         var timeline: [TimeInterval] = []
         for i in texts.indices {
-            if let known = starts[i] {
-                timeline.append(known)
-            } else if i < index {
-                // Never seen (the song was joined midway); park it just before the current line.
-                timeline.append(max(0, start - Double(index - i) * 0.01))
+            if let time = known[i] {
+                timeline.append(time)
+            } else if i < lastKnown {
+                // Never seen (the song was joined midway, or the pane scrolled past it before we looked);
+                // park it just before the line that is known.
+                timeline.append(max(0, start - Double(lastKnown - i) * 0.01))
             } else {
-                timeline.append(start + estimated + Double(i - index - 1) * max(estimated, 1))
+                timeline.append(start + estimated + Double(i - lastKnown - 1) * max(estimated, 1))
             }
         }
         let lines = texts.indices.map { i -> LyricLine in
@@ -148,9 +148,6 @@ final class MusicLyricsReader: ObservableObject {
                 words: WordTiming.estimate(text: texts[i], start: timeline[i], end: end))
         }
         lyrics = Lyrics(lines: lines, timing: .line, source: Self.sourceName)
-        anchors = texts.indices.compactMap { i in
-            starts[i].map { LineAnchor(text: texts[i], start: $0) }
-        }
     }
 
     private func lyricsArea() -> AXUIElement? {
