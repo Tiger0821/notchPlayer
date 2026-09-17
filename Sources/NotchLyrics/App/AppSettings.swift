@@ -75,6 +75,12 @@ final class AppSettings: ObservableObject {
     @Published var pixelArtWhite: Bool { didSet { defaults.set(pixelArtWhite, forKey: "pixelArtWhite") } }
 
     init() {
+        // "appleMusicLyrics" used to mean the same switch, back when it replaced the lyrics rather than
+        // retiming them. This has to run before the defaults are registered: once "appleMusicTiming" has a
+        // registered default, reading it never comes back empty, and the old choice would never be carried over.
+        if defaults.object(forKey: "appleMusicTiming") == nil, let old = defaults.object(forKey: "appleMusicLyrics") as? Bool {
+            defaults.set(old, forKey: "appleMusicTiming")
+        }
         defaults.register(defaults: [
             "enabled": true,
             "fontSize": 13.0,
@@ -110,11 +116,6 @@ final class AppSettings: ObservableObject {
             }
         }
         disabledSources = off
-        // "appleMusicLyrics" used to mean the same switch, back when it replaced the lyrics rather than
-        // retiming them.
-        if defaults.object(forKey: "appleMusicTiming") == nil, let old = defaults.object(forKey: "appleMusicLyrics") as? Bool {
-            defaults.set(old, forKey: "appleMusicTiming")
-        }
         if defaults.bool(forKey: "autoSync"), defaults.bool(forKey: "appleMusicTiming") {
             // Saved while both could be on. Music's timing is off unless someone turned it on, so it wins.
             defaults.set(false, forKey: "autoSync")
