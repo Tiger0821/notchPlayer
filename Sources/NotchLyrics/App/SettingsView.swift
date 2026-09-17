@@ -306,7 +306,7 @@ struct LyricsSettingsView: View {
                     }
                 } label: {
                     Text("~/Music/NotchLyrics")
-                    Text("Name files “Artist - Title.lrc”. They're used first when they have word timing.")
+                    Text("Name files “Artist - Title.lrc”. They're tried where Local Files sits in the list above.")
                 }
             }
 
