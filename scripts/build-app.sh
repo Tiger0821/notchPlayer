@@ -27,13 +27,17 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 # Extended attributes (Finder info, quarantine) make codesign refuse the bundle, and a synced folder such as
 # iCloud Drive keeps adding them back, so clear and sign together and try again if it loses the race. An
 # unsigned build is worth failing over: macOS treats it as a different app and drops granted permissions.
-IDENTITY="${CODESIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID Application/ {print $2; exit}')}"
+# The identity list is read in full before searching it: awk stopping at the first match can kill `security`
+# with SIGPIPE, and under pipefail that would end the whole script here without a word.
+IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+IDENTITY="${CODESIGN_IDENTITY:-$(awk -F'"' '/Apple Development|Developer ID Application/ {print $2; exit}' <<< "$IDENTITIES")}"
 
 sign() {
   xattr -c "$APP" 2>/dev/null || true
   xattr -cr "$APP" 2>/dev/null || true
   if [ -n "$IDENTITY" ]; then
-    codesign --force --options runtime --sign "$IDENTITY" "$APP" 2>&1
+    # A real identity turns on the hardened runtime, which needs the entitlements to reach Music and its audio.
+    codesign --force --options runtime --entitlements Resources/NotchLyrics.entitlements --sign "$IDENTITY" "$APP" 2>&1
   else
     codesign --force --sign - "$APP" 2>&1
   fi
@@ -45,7 +49,10 @@ for attempt in 1 2 3; do
   sleep 1
 done
 
-if codesign -dv --verbose=2 "$APP" 2>&1 | grep -q "Signature=adhoc"; then
+# Read the signature first: piped straight into `grep -q`, codesign can die of SIGPIPE when grep stops reading,
+# and under pipefail that failure makes an ad-hoc signature look like a real one.
+SIGNATURE="$(codesign -dv --verbose=2 "$APP" 2>&1)"
+if grep -q "Signature=adhoc" <<< "$SIGNATURE"; then
   if [ -n "$IDENTITY" ]; then
     echo "Failed to sign with $IDENTITY; macOS will ask for permissions again." >&2
     exit 1

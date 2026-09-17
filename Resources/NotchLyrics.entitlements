@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Used when build-app.sh signs with a real identity, which turns on the hardened runtime. -->
+    <!-- The hardened runtime refuses to send Apple Events without this, and NotchLyrics reads and controls Music with AppleScript. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+    <!-- Auto-sync reads Music's audio through a Core Audio tap, which the hardened runtime treats as audio input. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+</dict>
+</plist>
