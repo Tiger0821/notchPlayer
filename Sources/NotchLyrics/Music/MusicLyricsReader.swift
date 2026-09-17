@@ -66,9 +66,17 @@ final class MusicLyricsReader: ObservableObject {
         status = .off
     }
 
+    /// Whether macOS's prompt has already been put up this launch.
+    private static var asked = false
+
     /// Asks for the permission this needs, showing macOS's prompt the first time.
     static func requestPermission() {
         guard !AXIsProcessTrusted() else { return }
+        // macOS puts its prompt up again on every call while the permission is missing, so switching this on
+        // and off a few times means the same dialog a few times. Ask once a launch; after that the Sync tab
+        // says what is missing and offers the button that opens the right pane.
+        guard !asked else { return }
+        asked = true
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
     }
